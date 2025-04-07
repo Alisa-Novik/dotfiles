@@ -208,6 +208,25 @@ require('lazy').setup({
     end,
   },
   {
+    'rebelot/kanagawa.nvim',
+    name = 'kanagawa.nvim',
+    config = function()
+      require('kanagawa').setup {
+        transparent = true,
+        colors = {
+          theme = {
+            all = {
+              ui = {
+                bg_gutter = 'none',
+              },
+            },
+          },
+        },
+      }
+      vim.cmd 'colorscheme kanagawa-dragon'
+    end,
+  },
+  {
     'rose-pine/neovim',
     priority = 1000,
     name = 'rose-pine',
@@ -223,7 +242,6 @@ require('lazy').setup({
           NormalFloat = { bg = 'NONE' },
         },
       }
-      vim.cmd 'colorscheme rose-pine'
     end,
   },
   -- {
@@ -631,7 +649,7 @@ require('lazy').setup({
     main = 'nvim-treesitter.configs', -- Sets main module to use for opts
     -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
     opts = {
-      ensure_installed = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc', 'java' },
+      ensure_installed = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc', 'java', 'php' },
       -- Autoinstall languages that are not installed
       auto_install = true,
       highlight = {
