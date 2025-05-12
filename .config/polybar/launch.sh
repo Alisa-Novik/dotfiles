@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-
+cd "$(dirname "$(realpath "$0")")"
 # Add this script to your wm startup file.
 
-DIR="$HOME/.config/polybar/forest"
 
 # Terminate already running bar instances
 killall -q polybar
@@ -11,4 +10,4 @@ killall -q polybar
 while pgrep -u $UID -x polybar >/dev/null; do sleep 1; done
 
 # Launch the bar
-polybar -q main -c "$DIR"/config.ini &
+polybar -q main -c config.ini &
