@@ -3,9 +3,13 @@ export VISUAL="nvim"
 export fish_color_cwd 87d7ff
 export fish_color_user F08080
 
+alias s="./setup.sh"
+
 alias tg="~/Telegram/Telegram"
-alias cdd="cd ~/.dotfiles"
+alias cdd="cd ~/dotfiles"
 alias cda="cd ~/projects/Alisa-Novik.github.io/articles/"
+alias kc="nv ~/.config/kitty/kitty.conf"
+alias nc="nv ~/.config/nvim/init.lua"
 alias fc="nv ~/.config/fish/config.fish"
 alias fs="source ~/.config/fish/config.fish"
 alias i3="nvim ~/.config/i3/config"
