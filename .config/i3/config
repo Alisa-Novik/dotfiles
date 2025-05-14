@@ -24,6 +24,7 @@ exec_always --no-startup-id xrandr --output HDMI-0 --primary --mode 3840x2160 --
 exec_always --no-startup-id xset r rate 220 30
 exec_always --no-startup-id xset s off; xset s noblank; xset -dpms
 exec_always --no-startup-id ~/.config/polybar/launch.sh
+exec_always --no-startup-id feh --bg-scale ~/.config/kitty/4.jpg
 exec_always --no-startup-id picom --config ~/.config/picom/picom.conf
 exec --no-startup-id picom --config ~/.config/picom/picom.conf
 
