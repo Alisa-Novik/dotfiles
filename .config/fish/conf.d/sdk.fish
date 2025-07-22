@@ -6,7 +6,6 @@
 # Copyright (c) 2018-2023 Raphael Reitzig
 # MIT License (MIT)
 # https://github.com/reitzig/sdkman-for-fish
-
 # Account for custom install locations
 if set -q __sdkman_custom_dir
     set -gx SDKMAN_DIR "$__sdkman_custom_dir"

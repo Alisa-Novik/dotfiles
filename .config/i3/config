@@ -18,13 +18,13 @@ client.urgent #BF616A #BF616A #FFFFFF #BF616A
 exec --no-startup-id dex --autostart --environment k/i3
 #exec --no-startup-id xss-lock --transfer-sleep-lock -- i3lock --nofork
 exec --no-startup-id nm-applet
-exec --no-startup-id setxkbmap -layout us,ru -option grp:ctrl_shift_toggle
+exec --no-startup-id setxkbmap -layout us,ru -option grp:ctrl_space_toggle
 
 exec_always --no-startup-id xrandr --output HDMI-0 --primary --mode 3840x2160 --output DP-4 --mode 2560x1440 --right-of HDMI-0
 exec_always --no-startup-id xset r rate 220 30
 exec_always --no-startup-id xset s off; xset s noblank; xset -dpms
-exec_always --no-startup-id ~/.config/polybar/launch.sh
-exec_always --no-startup-id feh --bg-scale ~/.config/kitty/4.jpg
+# exec_always --no-startup-id ~/.config/polybar/launch.sh
+exec_always --no-startup-id feh --bg-scale ~/.config/kitty/b.png
 exec_always --no-startup-id picom --config ~/.config/picom/picom.conf
 exec --no-startup-id picom --config ~/.config/picom/picom.conf
 
@@ -34,19 +34,18 @@ bindsym XF86AudioRaiseVolume exec --no-startup-id pactl set-sink-volume @DEFAULT
 bindsym XF86AudioLowerVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -10% && $refresh_i3status
 bindsym XF86AudioMute exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle && $refresh_i3status
 bindsym XF86AudioMicMute exec --no-startup-id pactl set-source-mute @DEFAULT_SOURCE@ toggle && $refresh_i3status
+bindsym $mod+F11 exec --no-startup-id ~/.dotfiles/open-pavucontrol.sh
 
 # Floating modifier
 floating_modifier $mod
 bindsym $mod+f fullscreen toggle
-
-# Screenshot tool
-bindsym Print exec flameshot gui
 
 # Launch terminal
 bindsym $mod+Return exec kitty
 
 # Kill focused window
 bindsym $mod+c kill
+bindsym $mod+p exec flameshot gui
 
 # Application launcher
 bindsym $mod+space exec --no-startup-id ~/.config/polybar/scripts/launcher.sh

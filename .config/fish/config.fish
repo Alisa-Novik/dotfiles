@@ -16,10 +16,13 @@ alias i3="nvim ~/.config/i3/config"
 alias nv=nvim
 alias cdw="cd ~/projects/"
 alias cdl="cd ~/projects/lox/"
+alias cdg="cd ~/projects/golab/"
 alias mct="mvn clean test"
 alias mci="mvn clean install"
-
 alias oci="/home/alice/bin/oci"
+alias conn="bluetoothctl connect BC:87:FA:C2:C6:91"
+alias aiv="source ~/projects/aistuff/bin/activate.fish"
+alias cl="./cl"
 
 
 # Kanagawa-inspired Fish shell colors
@@ -47,3 +50,12 @@ set -g fish_pager_color_progress 6A9589  # waveAqua1
 set -g fish_pager_color_prefix 7E9CD8 --bold  # crystalBlue
 set -g fish_pager_color_completion DCD7BA  # fujiWhite
 set -g fish_pager_color_description 938AA9  # springViolet1
+
+
+for v in fish_color_user fish_color_host fish_color_host_remote
+    set -eg $v        # erase any blank global value
+    set -U  $v normal # write a safe universal fallback
+end
+
+# opencode
+fish_add_path /home/alice/.opencode/bin

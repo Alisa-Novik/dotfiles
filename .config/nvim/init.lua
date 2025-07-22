@@ -36,7 +36,8 @@ vim.opt.guicursor = "a:block-blinkwait0-blinkon0-blinkoff0"
 -- vim.opt.guicursor = ''
 vim.opt.inccommand = "split"
 vim.opt.cursorline = false
-vim.opt.scrolloff = 10
+vim.opt.scrolloff = 999
+vim.opt.sidescrolloff = 999
 
 -- [[ Basic Keymaps ]]
 --  See `:help vim.keymap.set()`
@@ -46,6 +47,10 @@ vim.keymap.set("n", "<C-u>", "<C-u>zz")
 vim.keymap.set("n", "<Esc>", "<cmd>nohlsearch<CR>")
 vim.keymap.set("n", "<leader>q", vim.diagnostic.setloclist, { desc = "Open diagnostic [Q]uickfix list" })
 vim.keymap.set("n", "<leader>b", ":b#<CR>", { silent = true })
+-- vim.keymap.set("n", "<leader>z", function()
+-- 	require("zen-mode").toggle()
+-- 	vim.cmd("PencilSoft")
+-- end, { desc = "Zen Mode + Twilight + Pencil" })
 
 -- NOTE: This won't work in all terminal emulators/tmux/etc. Try your own mapping
 -- or just use <C-\><C-n> to exit terminal mode
@@ -57,6 +62,11 @@ vim.keymap.set("n", "<right>", '<cmd>echo "Use l to move!!"<CR>')
 vim.keymap.set("n", "<up>", '<cmd>echo "Use k to move!!"<CR>')
 vim.keymap.set("n", "<down>", '<cmd>echo "Use j to move!!"<CR>')
 
+vim.keymap.set("n", "<up>", '<cmd>echo "Use k to move!!"<CR>')
+vim.keymap.set("n", "<down>", '<cmd>echo "Use j to move!!"<CR>')
+
+vim.keymap.set("n", "]q", ":lnext | ll <CR>")
+vim.keymap.set("n", "[q", ":lprev | ll <CR>")
 -- Keybinds to make split navigation easier.
 --  Use CTRL+<hjkl> to switch between windows
 --
@@ -74,6 +84,60 @@ vim.keymap.set("n", "<leader>wl", function()
 end, { desc = "List Java methods" })
 
 -- [[ Basic Autocommands ]]
+local prev_colors
+local prev_colorcolumn
+local quiet_active = false
+
+local function quiet_enter()
+	if quiet_active then
+		return
+	end
+	quiet_active = true
+
+	prev_colors = vim.g.colors_name
+	prev_colorcolumn = vim.wo.colorcolumn -- window‑scoped getter
+
+	vim.cmd.colorscheme("kanagawa-dragon")
+	vim.wo.colorcolumn = "" -- hide the guide
+
+	if package.loaded.gitsigns then
+		require("gitsigns").toggle_signs(false)
+	end
+
+	vim.cmd("ZenMode")
+	local ok, tw = pcall(require, "twilight")
+	if ok then
+		tw.disable()
+	end
+end
+
+local function quiet_leave()
+	if not quiet_active then
+		return
+	end
+	quiet_active = false
+
+	vim.wo.colorcolumn = prev_colorcolumn -- restore per‑window value
+
+	if package.loaded.gitsigns then
+		require("gitsigns").toggle_signs(true)
+	end
+	if prev_colors then
+		vim.cmd.colorscheme(prev_colors)
+	end
+	local ok, tw = pcall(require, "twilight")
+	if ok then
+		tw.disable()
+	end
+
+	vim.cmd("ZenMode")
+end
+
+vim.api.nvim_create_user_command("QuietZen", quiet_enter, {})
+vim.api.nvim_create_user_command("QuietZenOff", quiet_leave, {})
+vim.keymap.set("n", "<leader>jz", "<cmd>QuietZen<CR>", { silent = true })
+vim.keymap.set("n", "<leader>jq", "<cmd>QuietZenOff<CR>", { silent = true })
+
 vim.api.nvim_create_autocmd("TextYankPost", {
 	desc = "Highlight when yanking (copying) text",
 	group = vim.api.nvim_create_augroup("kickstart-highlight-yank", { clear = true }),
@@ -108,6 +172,12 @@ vim.opt.rtp:prepend(lazypath)
 
 require("lazy").setup({
 	{
+		"supermaven-inc/supermaven-nvim",
+		config = function()
+			require("supermaven-nvim").setup({})
+		end,
+	},
+	{
 		"iamcco/markdown-preview.nvim",
 		build = "cd app && npm install",
 		ft = { "markdown" },
@@ -119,12 +189,32 @@ require("lazy").setup({
 		end,
 	},
 	{
-		"folke/zen-mode.nvim",
+		"preservim/vim-pencil",
+		ft = { "markdown", "text", "gitcommit" },
+		init = function()
+			vim.g["pencil#wrapModeDefault"] = "soft"
+			vim.g["pencil#conceallevel"] = 2
+		end,
+	},
+	{
+		"folke/tokyonight.nvim",
+		lazy = false,
+		priority = 1000,
 		opts = {},
 	},
 	{
+		"folke/zen-mode.nvim",
+		opts = {
+			window = { backdrop = 1 },
+			plugins = { twilight = { enabled = false } },
+		},
+	},
+	{ "andweeb/presence.nvim" },
+	{
 		"folke/twilight.nvim",
-		opts = {},
+		opts = {
+			context = 15,
+		},
 	},
 	"tpope/vim-sleuth",
 	{
@@ -227,14 +317,29 @@ require("lazy").setup({
 			vim.keymap.set("n", "<leader>h5", function()
 				harpoon:list():select(5)
 			end)
-
-			vim.keymap.set("n", "<leader>p", function()
-				harpoon:list():prev()
-			end)
-			vim.keymap.set("n", "<leader>n", function()
-				harpoon:list():next()
-			end)
 		end,
+	},
+	{
+		"everviolet/nvim",
+		name = "evergarden",
+		priority = 1000, -- Colorscheme plugin is loaded first before any other plugins
+		opts = {
+			theme = {
+				variant = "winter", -- 'winter'|'fall'|'spring'|'summer'
+				accent = "snow",
+			},
+			editor = {
+				transparent_background = false,
+				sign = { color = "none" },
+				float = {
+					color = "mantle",
+					invert_border = false,
+				},
+				completion = {
+					color = "surface0",
+				},
+			},
+		},
 	},
 	{
 		"rebelot/kanagawa.nvim",
@@ -252,7 +357,7 @@ require("lazy").setup({
 					},
 				},
 			})
-			vim.cmd("colorscheme kanagawa-dragon")
+			-- vim.cmd("colorscheme kanagawa-dragon")
 		end,
 	},
 	{
@@ -261,27 +366,63 @@ require("lazy").setup({
 		name = "rose-pine",
 		config = function()
 			require("rose-pine").setup({
-				variant = "main",
-				styles = {
-					transparency = true,
-				},
+				variant = "moon", -- or "main" / "dawn" / "dark"
+				styles = { transparency = false }, -- keep solid colours
+				--- override only the background groups we care about
 				highlight_groups = {
-					Normal = { bg = "NONE" },
-					NormalNC = { bg = "NONE" },
-					NormalFloat = { bg = "NONE" },
+					Normal = { bg = "#000000" },
+					NormalNC = { bg = "#000000" },
+					NormalFloat = { bg = "#000000" },
+					SignColumn = { bg = "#000000" },
+					StatusLine = { bg = "#000000" },
+					VertSplit = { bg = "#000000" },
+					ColorColumn = { bg = "#000000" },
+					-- add more if you notice other bits showing through
 				},
 			})
+
+			vim.cmd.colorscheme("rose-pine-moon") -- or any variant you chose above
 		end,
 	},
-	-- {
-	--   'catppuccin/nvim',
-	--   name = 'catppuccin',
-	--   priority = 1000,
-	--   init = function()
-	--     vim.cmd.colorscheme 'catppuccin'
-	--     vim.cmd.hi 'Comment gui=none'
-	--   end,
-	-- },
+	{
+		"bettervim/yugen.nvim",
+		config = function()
+			-- vim.cmd.colorscheme("yugen")
+		end,
+	},
+	{ "ficcdaf/ashen.nvim" },
+	{ "shaunsingh/nord.nvim" },
+	{
+		"zenbones-theme/zenbones.nvim",
+		-- Optionally install Lush. Allows for more configuration or extending the colorscheme
+		-- If you don't want to install lush, make sure to set g:zenbones_compat = 1
+		-- In Vim, compat mode is turned on as Lush only works in Neovim.
+		dependencies = "rktjmp/lush.nvim",
+		lazy = false,
+		priority = 1000,
+		config = function()
+			-- vim.cmd.colorscheme("zenwritten")
+		end,
+		-- you can set set configuration options here
+		-- config = function()
+		--     vim.g.zenbones_darken_comments = 45
+		--     vim.cmd.colorscheme('zenbones')
+		-- end
+	},
+	{
+		"catppuccin/nvim",
+		name = "catppuccin",
+		priority = 1000,
+		init = function()
+			-- vim.cmd.colorscheme("catppuccin")
+			-- vim.cmd.hi("Comment gui=none")
+		end,
+	},
+	{
+		"scottmckendry/cyberdream.nvim",
+		lazy = false,
+		priority = 1000,
+	},
 	{
 		"nvim-tree/nvim-tree.lua",
 		cmd = { "NvimTreeToggle", "NvimTreeFindFile" },

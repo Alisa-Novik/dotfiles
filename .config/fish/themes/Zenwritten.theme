@@ -1,0 +1,18 @@
+# name: 'Zenwritten'
+# preferred_background: black
+
+fish_color_normal           b7b7b7
+fish_color_command          ffffff --bold
+fish_color_keyword          ffffff --bold
+fish_color_param            cccccc
+fish_color_comment          666666 --italic
+fish_color_redirection      7a7a7a
+fish_color_operator         a2a2a2
+fish_color_escape           a2a2a2
+fish_color_autosuggestion   525252
+fish_color_error            d75f5f
+fish_color_end              929292
+fish_color_search_match     white   --background=3a3a3a
+fish_color_selection        white   --background=3a3a3a
+fish_color_cwd              8e8e8e
+fish_color_cwd_root         d75f5f
