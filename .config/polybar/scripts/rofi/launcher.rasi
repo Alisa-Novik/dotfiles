@@ -1,8 +1,8 @@
 configuration {
-	font:							"FiraCode Nerd Font 18";
+	font:							"FiraCode Nerd Font 16";
     show-icons:                     true;
 	icon-theme: 					"Papirus";
-    display-drun: 					"";
+    display-drun: 					">";
     drun-display-format:            "{name}";
     disable-history:                false;
     fullscreen:                     false;
@@ -13,13 +13,13 @@ configuration {
 @import "colors.rasi"
 
 window {
-    border: 0px;
+    border: 2px;
     background-color:               @bg;
     text-color:                     @fg;
-	border:							0px 0px 0px 0px;
+	border:							2px 2px 2px 2px;
 	border-color:					@ac;
-    border-radius:                  0px;
-	width:							2000px;
+    border-radius:                  2px;
+	width:							1280px;
     location:                       center;
     x-offset:                       0;
     y-offset:                       0;
@@ -28,66 +28,71 @@ window {
 mainbox {
     orientation: horizontal;
     children:   [ side, content ];
-    background-color: transparent;
-    spacing:    5px;
-    padding:    5px;
+    background-color: #090403EE;
+    spacing:    16px;
+    padding:    18px;
 }
 
 side {
-    width:        645px;
-    background-image: url("/home/alice/.config/polybar/scripts/rofi/akul2.jpg", both);
-    background-color: transparent;
+    width:        420px;
+    background-image: url("/home/alice/.config/polybar/scripts/rofi/rainbow-reaper.png", both);
+    background-color: #120604;
     background-repeat: false;
     expand:       false;
+    border:       1px;
+    border-color: #A72818;
+    border-radius: 2px;
 }
 
 content {
     expand: true;
-    background-color:               @bg;
+    background-color:               #090403D8;
     children: [ inputbar, listview ];
     layout:   vertical;
-    background-image: url("/home/alice/.config/polybar/scripts/rofi/ava1.jpg", height);
+    background-image: none;
     background-repeat: false;
-    background-color: transparent;
+    border: 1px;
+    border-color: #451109;
+    padding: 12px;
 }
 
 prompt {
     enabled: 						true;
-	padding: 						0px;
-	background-color: 				@bga;
+	padding: 						0px 12px 0px 0px;
+	background-color: 				transparent;
 	text-color: 					@ac;
-	font:							"feather 12";
+	font:							"FiraCode Nerd Font 18";
 }
 
 entry {
-    background-color:               @al;
+    background-color:               transparent;
     text-color:                     @fg;
-    placeholder-color:              @fg;
+    placeholder-color:              #C9432FFF;
     expand:                         true;
     horizontal-align:               0;
-    placeholder:                    "Search...";
+    placeholder:                    "interpreting intent...";
     padding: 						0px 0px 0px 5px;
     blink:                          true;
 }
 
 inputbar {
 	children: 						[ prompt, entry ];
-    background-color:               @bga;
+    background-color:               #170705E8;
     text-color:                     @fg;
     expand:                         false;
 	border:							0px 0px 1px 0px;
     border-radius:                  0px;
-	border-color:					@se;
+	border-color:					@ac;
     margin:                         0px;
-    padding:                        10px;
+    padding:                        12px 14px;
 }
 
 listview {
-    background-color:               @al;
-    padding:                        0px;
+    background-color:               #060303B8;
+    padding:                        12px 0px 0px 0px;
     columns:                        1;
-    lines:                          10;
-    spacing:                        5px;
+    lines:                          9;
+    spacing:                        4px;
     cycle:                          true;
     dynamic:                        true;
     layout:                         vertical;
@@ -95,17 +100,19 @@ listview {
 
 
 element {
-    background-color:               @al;
+    background-color:               transparent;
     text-color:                     @fg;
     orientation:                    horizontal;
     border-radius:                  0px;
-	padding: 						8px;
+	padding: 						8px 12px;
+    border:                         0px 0px 0px 3px;
+    border-color:                   transparent;
 }
 
 element-icon {
     background-color:               transparent;
     text-color:               		inherit;
-    size:                           24px;
+    size:                           22px;
     border:                         0px;
 }
 
@@ -120,8 +127,8 @@ element-text {
 
 element selected {
     background-color:               @se;
-    text-color:                     @bg;
-	border:							0px 0px 0px 0px;
+    text-color:                     #090403;
+	border:							0px 0px 0px 3px;
     border-radius:                  0px;
-    border-color:                  	@ac;
+    border-color:                  	#FFC2A8;
 }

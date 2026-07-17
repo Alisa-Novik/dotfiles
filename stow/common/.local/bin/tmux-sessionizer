@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+config_file=${TMUX_SESSIONIZER_ROOTS:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles/sessionizer/roots}
+
+trim_whitespace() {
+	local value=$1
+	value=${value#"${value%%[![:space:]]*}"}
+	value=${value%"${value##*[![:space:]]}"}
+	printf '%s\n' "$value"
+}
+
+expand_root() {
+	local value=$1
+	case "$value" in
+		'~'|'$HOME'|'${HOME}') printf '%s\n' "$HOME" ;;
+		'~/'*) printf '%s/%s\n' "$HOME" "${value:2}" ;;
+		'$HOME/'*) printf '%s/%s\n' "$HOME" "${value:6}" ;;
+		'${HOME}/'*) printf '%s/%s\n' "$HOME" "${value:8}" ;;
+		/*) printf '%s\n' "$value" ;;
+		*) printf '%s/%s\n' "$HOME" "$value" ;;
+	esac
+}
+
+canonical_directory() {
+	CDPATH= cd -P -- "$1" 2>/dev/null && pwd
+}
+
+if [[ $# -gt 1 ]]; then
+	printf 'Usage: tmux-sessionizer [directory]\n' >&2
+	exit 2
+fi
+
+if [[ $# -eq 1 ]]; then
+	selected=$(expand_root "$1")
+	if [[ ! -d "$selected" ]]; then
+		printf 'tmux-sessionizer: not a directory: %s\n' "$selected" >&2
+		exit 1
+	fi
+else
+	if ! command -v fzf >/dev/null 2>&1; then
+		printf 'tmux-sessionizer: fzf is required\n' >&2
+		exit 1
+	fi
+
+	roots=()
+	if [[ -r "$config_file" ]]; then
+		while IFS= read -r configured_root || [[ -n "$configured_root" ]]; do
+			configured_root=$(trim_whitespace "$configured_root")
+			[[ -z "$configured_root" || ${configured_root:0:1} == "#" ]] && continue
+			roots+=("$(expand_root "$configured_root")")
+		done < "$config_file"
+	fi
+
+	if [[ ${#roots[@]} -eq 0 ]]; then
+		roots=("$HOME/projects" "$HOME/work" "$HOME")
+	fi
+
+	candidate_file=$(mktemp "${TMPDIR:-/tmp}/tmux-sessionizer.XXXXXX")
+	trap 'rm -f "$candidate_file"' EXIT HUP INT TERM
+
+	for root in "${roots[@]}"; do
+		[[ -d "$root" ]] || continue
+		for candidate in "$root"/*; do
+			[[ -d "$candidate" ]] || continue
+			printf '%s\n' "$candidate" >> "$candidate_file"
+		done
+	done
+
+	if [[ ! -s "$candidate_file" ]]; then
+		printf 'tmux-sessionizer: no directories found; edit %s\n' "$config_file" >&2
+		exit 1
+	fi
+
+	LC_ALL=C sort -u "$candidate_file" -o "$candidate_file"
+	selected=$(fzf < "$candidate_file") || exit 0
+	[[ -n "$selected" ]] || exit 0
+fi
+
+selected=$(canonical_directory "$selected") || {
+	printf 'tmux-sessionizer: cannot enter directory: %s\n' "$selected" >&2
+	exit 1
+}
+
+selected_name=$(basename "$selected" | tr ' .:' '___' | sed 's/[^A-Za-z0-9_-]/_/g')
+[[ -n "$selected_name" ]] || selected_name=workspace
+
+if ! command -v tmux >/dev/null 2>&1; then
+	printf 'tmux-sessionizer: tmux is required\n' >&2
+	exit 1
+fi
+
+tmux_running=0
+tmux list-sessions >/dev/null 2>&1 && tmux_running=1
+
+if [[ -z ${TMUX:-} && $tmux_running -eq 0 ]]; then
+	exec tmux new-session -s "$selected_name" -c "$selected"
+fi
+
+if ! tmux has-session -t="$selected_name" 2>/dev/null; then
+	tmux new-session -ds "$selected_name" -c "$selected"
+fi
+
+if [[ -n ${TMUX:-} ]]; then
+	tmux switch-client -t "$selected_name"
+else
+	exec tmux attach-session -t "$selected_name"
+fi

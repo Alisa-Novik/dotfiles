@@ -1,0 +1,10 @@
+brew "git"
+brew "neovim"
+brew "tmux"
+brew "ripgrep"
+brew "fzf"
+brew "fd"
+brew "stow"
+
+cask "kitty"
+cask "font-fira-code-nerd-font"

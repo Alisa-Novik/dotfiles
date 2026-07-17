@@ -1,0 +1,13 @@
+# One package per line. Ubuntu/Debian package names.
+zsh
+tmux
+neovim
+kitty
+ripgrep
+fzf
+fd-find
+stow
+git
+curl
+build-essential
+unzip

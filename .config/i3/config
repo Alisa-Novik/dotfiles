@@ -20,13 +20,16 @@ exec --no-startup-id dex --autostart --environment k/i3
 exec --no-startup-id nm-applet
 exec --no-startup-id setxkbmap -layout us,ru -option grp:ctrl_space_toggle
 
-exec_always --no-startup-id xrandr --output HDMI-0 --primary --mode 3840x2160 --output DP-4 --mode 2560x1440 --right-of HDMI-0
+# Temporarily disabled after repeated desktop stalls on 2026-06-29.
+# Run manually when needed: /home/alice/bin/cento display-layout-fix
+# exec_always --no-startup-id /home/alice/bin/cento display-layout-fix
 exec_always --no-startup-id xset r rate 220 30
 exec_always --no-startup-id xset s off; xset s noblank; xset -dpms
-# exec_always --no-startup-id ~/.config/polybar/launch.sh
-exec_always --no-startup-id feh --bg-scale ~/.config/kitty/b.png
+exec_always --no-startup-id /home/alice/.config/cento/industrial-os/polybar/launch.sh
+exec_always --no-startup-id ~/discord_updater.sh
+exec_always --no-startup-id /home/alice/bin/cento wallpaper-manager --apply-current
+
 exec_always --no-startup-id picom --config ~/.config/picom/picom.conf
-exec --no-startup-id picom --config ~/.config/picom/picom.conf
 
 # Audio controls
 set $refresh_i3status1killall -SIGUSR1 i3status
@@ -34,18 +37,29 @@ bindsym XF86AudioRaiseVolume exec --no-startup-id pactl set-sink-volume @DEFAULT
 bindsym XF86AudioLowerVolume exec --no-startup-id pactl set-sink-volume @DEFAULT_SINK@ -10% && $refresh_i3status
 bindsym XF86AudioMute exec --no-startup-id pactl set-sink-mute @DEFAULT_SINK@ toggle && $refresh_i3status
 bindsym XF86AudioMicMute exec --no-startup-id pactl set-source-mute @DEFAULT_SOURCE@ toggle && $refresh_i3status
+# Bluetooth AVRCP headsets and media keyboards
+bindsym XF86AudioPlay exec --no-startup-id playerctl --player=playerctld play-pause
+bindsym XF86AudioPause exec --no-startup-id playerctl --player=playerctld pause
+bindsym XF86AudioNext exec --no-startup-id playerctl --player=playerctld next
+bindsym XF86AudioPrev exec --no-startup-id playerctl --player=playerctld previous
+bindsym XF86AudioStop exec --no-startup-id playerctl --player=playerctld stop
 bindsym $mod+F11 exec --no-startup-id ~/.dotfiles/open-pavucontrol.sh
 
 # Floating modifier
 floating_modifier $mod
 bindsym $mod+f fullscreen toggle
 
+# Keep file browsers and GTK file dialogs from taking over the top monitor.
+for_window [class="(?i)^(nautilus|org.gnome.Nautilus)$"] floating enable, resize set 1400 px 900 px, move position center
+for_window [class="^Xdg-desktop-portal-gtk$"] floating enable, resize set 1400 px 900 px, move position center
+
 # Launch terminal
 bindsym $mod+Return exec kitty
 
 # Kill focused window
 bindsym $mod+c kill
-bindsym $mod+p exec flameshot gui
+# Physical P key; keeps Alt+P working when the active layout is Russian.
+bindcode --release $mod+33 exec --no-startup-id flameshot gui
 
 # Application launcher
 bindsym $mod+space exec --no-startup-id ~/.config/polybar/scripts/launcher.sh
@@ -70,25 +84,38 @@ bindsym $mod+Shift+j move down
 bindsym $mod+Shift+k move up
 bindsym $mod+Shift+l move right
 
-bindsym $mod+h focus left
-bindsym $mod+j focus down
-bindsym $mod+k focus up
-bindsym $mod+l focus right
+bindsym $mod+h exec --no-startup-id /home/alice/projects/cento/scripts/industrial_focus.py left
+bindsym $mod+j exec --no-startup-id /home/alice/projects/cento/scripts/industrial_focus.py down
+bindsym $mod+k exec --no-startup-id /home/alice/projects/cento/scripts/industrial_focus.py up
+bindsym $mod+l exec --no-startup-id /home/alice/projects/cento/scripts/industrial_focus.py right
 
 # Assign workspaces to specific displays
-workspace $ws1 output HDMI-0
-workspace $ws2 output HDMI-0
-workspace $ws3 output HDMI-0
-workspace $ws4 output HDMI-0
-workspace $ws5 output HDMI-0
-workspace $ws6 output HDMI-0
-workspace $ws7 output HDMI-0
-workspace $ws8 output HDMI-0
+workspace $ws1 output DP-4.8 DP-0.8
+workspace $ws2 output DP-4.8 DP-0.8
+workspace $ws3 output DP-4.8 DP-0.8
+workspace $ws4 output DP-4.8 DP-0.8
+workspace $ws5 output DP-4.8 DP-0.8
+workspace $ws6 output DP-4.8 DP-0.8
+workspace $ws7 output DP-4.8 DP-0.8
+workspace $ws8 output DP-4.8 DP-0.8
 
-workspace $wsl1 output DP-4
-workspace $wsl2 output DP-4
-workspace $wsr1 output DP-4
-workspace $wsr2 output DP-4
+workspace $wsl1 output HDMI-0
+workspace $wsl2 output HDMI-0
+workspace $wsr1 output HDMI-0
+workspace $wsr2 output HDMI-0
+# workspace $ws1 output HDMI-0
+# workspace $ws2 output HDMI-0
+# workspace $ws3 output HDMI-0
+# workspace $ws4 output HDMI-0
+# workspace $ws5 output HDMI-0
+# workspace $ws6 output HDMI-0
+# workspace $ws7 output HDMI-0
+# workspace $ws8 output HDMI-0
+#
+# workspace $wsl1 output DP-0.8
+# workspace $wsl2 output DP-0.8
+# workspace $wsr1 output DP-0.8
+# workspace $wsr2 output DP-0.8
 
 # Bind keys to switch workspaces
 bindsym $mod+1 workspace number $ws1
@@ -123,7 +150,8 @@ bindsym $mod+Shift+g reload
 bindsym $mod+Shift+r restart
 
 # Autostart
-exec pulseaudio --start
+# Keep PulseAudio repair on startup aligned with systemd user service recovery.
+exec --no-startup-id /home/alice/.local/bin/pulseaudio-autofix
 # exec_always bash /home/alice/.dotfiles/kbfix.sh
 
 exec_always bash /home/alice/.dotfiles/kbfix.sh 
@@ -145,23 +173,28 @@ mode "resize" {
     bindsym $mod+r mode "default"
 }
 
-# i3bar configuration
-bar {
-    mode hide
-    hidden_state hide
-    position top
-    font pango:FiraCode Nerd Font 12
+# i3bar disabled; Polybar is launched above.
 
-    colors {
-        background #2E3440
-        statusline #E5E9F0
-        separator  #4C566A
-
-        focused_workspace  #5E81AC #5E81AC #ECEFF4
-        active_workspace   #4C566A #4C566A #E5E9F0
-        inactive_workspace #3B4252 #3B4252 #E5E9F0
-        urgent_workspace   #BF616A #BF616A #ECEFF4
-        binding_mode       #8FBCBB #8FBCBB #2E3440
-    }
-}
-
+# BEGIN_CENTO_INDUSTRIAL_OS
+# Managed by cento preset industrial-purple.
+font pango:FiraCode Nerd Font 8
+gaps inner 3
+gaps outer 2
+smart_gaps on
+hide_edge_borders none
+new_window pixel 3
+new_float pixel 3
+client.focused #e5d1ff #c4a7e7 #191724 #f0dcff #e5d1ff
+client.focused_inactive #524f67 #26233a #908caa #524f67 #524f67
+client.unfocused #1f1d2e #13111d #6e6a86 #1f1d2e #1f1d2e
+client.urgent #eb6f92 #eb6f92 #191724 #eb6f92 #eb6f92
+client.placeholder #524f67 #191724 #908caa #524f67 #524f67
+client.background #191724
+# Temporarily disabled after repeated desktop stalls on 2026-06-29.
+# Run manually when needed: /home/alice/bin/cento preset industrial-purple --session
+# exec_always --no-startup-id /home/alice/bin/cento preset industrial-purple --session
+bindsym $mod+Shift+i exec --no-startup-id /home/alice/bin/cento preset industrial-purple --workspace --black-only
+bindsym $mod+Shift+u exec --no-startup-id /home/alice/bin/cento preset industrial-purple --session
+bindsym $mod+Shift+o exec --no-startup-id /home/alice/bin/cento preset industrial-purple --dashboard-only --open
+bindsym $mod+Shift+Space exec --no-startup-id rofi -modi drun,run -show drun -theme /home/alice/.config/cento/industrial-os/rofi.rasi
+# END_CENTO_INDUSTRIAL_OS

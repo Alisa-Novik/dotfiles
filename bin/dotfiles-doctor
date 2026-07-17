@@ -1,0 +1,259 @@
+#!/usr/bin/env bash
+
+set -u
+
+repo_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+pass_count=0
+warn_count=0
+fail_count=0
+
+pass() {
+	pass_count=$((pass_count + 1))
+	printf 'PASS  %s\n' "$*"
+}
+
+warn() {
+	warn_count=$((warn_count + 1))
+	printf 'WARN  %s\n' "$*"
+}
+
+fail() {
+	fail_count=$((fail_count + 1))
+	printf 'FAIL  %s\n' "$*"
+}
+
+read_marker() {
+	local path=$1 value=""
+	if [[ -r "$path" ]]; then
+		IFS= read -r value < "$path" || true
+	fi
+	printf '%s\n' "$value"
+}
+
+dotfiles_os=$(read_marker "$HOME/.config/dotfiles/os")
+dotfiles_role=$(read_marker "$HOME/.config/dotfiles/role")
+profile=$dotfiles_os-$dotfiles_role
+
+case "$profile" in
+	linux-personal) stow_packages=(common linux personal) ;;
+	macos-personal) stow_packages=(common macos personal) ;;
+	macos-work) stow_packages=(common macos work) ;;
+	*)
+		stow_packages=()
+		fail "profile markers are missing or invalid: $profile"
+		;;
+esac
+
+if [[ ${#stow_packages[@]} -gt 0 ]]; then
+	pass "profile $profile"
+fi
+
+case "$(uname -s)" in
+	Linux) actual_os=linux ;;
+	Darwin) actual_os=macos ;;
+	*) actual_os=unsupported ;;
+esac
+if [[ -n "$dotfiles_os" && "$actual_os" == "$dotfiles_os" ]]; then
+	pass "profile OS matches host ($actual_os)"
+else
+	fail "profile OS $dotfiles_os does not match host $actual_os"
+fi
+
+for command_name in zsh tmux nvim kitty rg fzf git; do
+	if command -v "$command_name" >/dev/null 2>&1; then
+		pass "$command_name available ($(command -v "$command_name"))"
+	else
+		fail "$command_name is missing"
+	fi
+done
+
+if command -v fd >/dev/null 2>&1; then
+	pass "fd available ($(command -v fd))"
+elif command -v fdfind >/dev/null 2>&1; then
+	pass "fdfind available; zsh provides fd-compatible fzf commands"
+else
+	warn "fd/fdfind missing; fzf falls back to rg"
+fi
+
+if command -v stow >/dev/null 2>&1; then
+	pass "GNU Stow available"
+else
+	warn "GNU Stow missing; existing links work, but bootstrap maintenance requires it"
+fi
+
+if [[ ${#stow_packages[@]} -gt 0 ]]; then
+	manifest_file=$(mktemp "${TMPDIR:-/tmp}/dotfiles-doctor-manifest.XXXXXX")
+	: > "$manifest_file"
+	for package in "${stow_packages[@]}"; do
+		package_root=$repo_root/stow/$package
+		while IFS= read -r source_path; do
+			printf '%s\n' "${source_path#"$package_root/"}" >> "$manifest_file"
+		done < <(find "$package_root" \( -type f -o -type l \) -print)
+	done
+	LC_ALL=C sort -u "$manifest_file" -o "$manifest_file"
+
+	link_failures=0
+	while IFS= read -r relative_path || [[ -n "$relative_path" ]]; do
+		[[ -n "$relative_path" ]] || continue
+		expected_source=""
+		for package in "${stow_packages[@]}"; do
+			candidate=$repo_root/stow/$package/$relative_path
+			if [[ -e "$candidate" || -L "$candidate" ]]; then
+				expected_source=$candidate
+			fi
+		done
+		target=$HOME/$relative_path
+		if [[ -L "$target" && "$target" -ef "$expected_source" ]]; then
+			continue
+		fi
+		link_failures=$((link_failures + 1))
+		[[ $link_failures -le 8 ]] && fail "link mismatch: ~/$relative_path"
+	done < "$manifest_file"
+	rm -f "$manifest_file"
+	if [[ $link_failures -eq 0 ]]; then
+		pass "all selected Stow leaf links resolve to the repository"
+	elif [[ $link_failures -gt 8 ]]; then
+		fail "$((link_failures - 8)) additional link mismatches omitted"
+	fi
+fi
+
+if zsh -n "$repo_root/stow/common/.zshrc" "$repo_root/stow/common/.zprofile"; then
+	pass "zsh syntax"
+else
+	fail "zsh syntax"
+fi
+
+if zsh -dfc 'source "$HOME/.zshrc"; [[ "$DOTFILES_PROFILE" != unconfigured && "$EDITOR" == nvim && "$VISUAL" == nvim ]]'; then
+	pass "zsh profile loads with nvim editor and explicit profile"
+else
+	fail "zsh profile load"
+fi
+
+tmux_socket=dotfiles-doctor-$$
+tmux_ok=0
+if command -v tmux >/dev/null 2>&1; then
+	if tmux -L "$tmux_socket" -f "$HOME/.tmux.conf" new-session -d -s dotfiles-doctor 2>/dev/null; then
+		prefix_value=$(tmux -L "$tmux_socket" show-options -gv prefix 2>/dev/null || true)
+		if [[ "$prefix_value" == C-a ]]; then
+			tmux_ok=1
+		fi
+		tmux -L "$tmux_socket" kill-server 2>/dev/null || true
+	fi
+fi
+if [[ $tmux_ok -eq 1 ]]; then
+	pass "isolated tmux server parsed config and uses C-a"
+else
+	fail "isolated tmux config parse"
+fi
+
+init_lua=$HOME/.config/nvim/init.lua
+nvim_data_home=${XDG_DATA_HOME:-$HOME/.local/share}/nvim
+if [[ ${DOTFILES_DOCTOR_COMPILE_ONLY:-0} != 1 \
+	&& -d "$nvim_data_home/lazy/harpoon" \
+	&& -d "$nvim_data_home/lazy/lazy.nvim" ]]
+then
+	if nvim --headless \
+		'+lua assert(vim.fn.exists(":Explore") == 2, "netrw missing")' \
+		'+lua assert(pcall(require, "harpoon"), "harpoon missing")' \
+		+qa >/dev/null 2>&1
+	then
+		pass "Neovim headless startup with netrw and Harpoon"
+	else
+		fail "Neovim headless startup/netrw/Harpoon"
+	fi
+else
+	if DOTFILES_NVIM_INIT="$init_lua" nvim --headless -u NONE \
+		'+lua assert(loadfile(vim.env.DOTFILES_NVIM_INIT))' +qa >/dev/null 2>&1 \
+		&& grep -Fq '"ThePrimeagen/harpoon"' "$init_lua" \
+		&& grep -Fq '<cmd>Explore<CR>' "$init_lua"
+	then
+		pass "Neovim config compiles and declares netrw plus Harpoon"
+		warn "Neovim plugins are not installed yet; open nvim once, then rerun doctor"
+	else
+		fail "Neovim config compilation/netrw/Harpoon declaration"
+	fi
+fi
+
+if bash -n "$HOME/.local/bin/tmux-sessionizer"; then
+	pass "tmux-sessionizer syntax"
+else
+	fail "tmux-sessionizer syntax"
+fi
+if "$HOME/.local/bin/tmux-sessionizer" "/definitely/not/a/dotfiles/directory" >/dev/null 2>&1; then
+	fail "tmux-sessionizer accepted an invalid directory"
+else
+	pass "tmux-sessionizer rejects invalid paths"
+fi
+
+kitty_wrapper=$HOME/.config/kitty/kitty.conf
+if [[ -f "$kitty_wrapper" ]] \
+	&& grep -Fqx 'include dotfiles.conf' "$kitty_wrapper" \
+	&& grep -Fq '# BEGIN_KITTY_THEME' "$kitty_wrapper" \
+	&& [[ ! -L "$kitty_wrapper" ]]
+then
+	pass "Kitty uses a local wrapper with portable base and runtime theme boundary"
+else
+	fail "Kitty wrapper ownership boundary"
+fi
+
+if [[ "$dotfiles_role" == personal ]]; then
+	if grep -Fq '# >>> cento init >>>' "$HOME/.zshrc" \
+		&& grep -Fq '# >>> cento tmux >>>' "$HOME/.tmux.conf"
+	then
+		pass "personal profile contains guarded Cento source markers"
+	else
+		fail "personal Cento source markers"
+	fi
+	if command -v cento >/dev/null 2>&1; then
+		[[ -f "$HOME/.config/cento/init.zsh" ]] && pass "Cento zsh snippet present" || warn "Cento zsh snippet missing"
+		[[ -f "$HOME/.config/cento/tmux.conf" ]] && pass "Cento tmux snippet present" || warn "Cento tmux snippet missing"
+	fi
+else
+	if zsh -dfc 'source "$HOME/.zshrc"; ! alias bd >/dev/null 2>&1 && [[ -z ${CENTO_ROOT:-} ]]'; then
+		pass "work profile excludes personal/Cento aliases"
+	else
+	fail "work profile leaked personal/Cento shell state"
+	fi
+fi
+
+file_mode() {
+	if stat -c '%a' "$1" >/dev/null 2>&1; then
+		stat -c '%a' "$1"
+	else
+		stat -f '%Lp' "$1"
+	fi
+}
+
+permission_failures=0
+for local_file in \
+	"$HOME/.config/dotfiles/local.zsh" \
+	"$HOME/.config/dotfiles/tmux/local.conf" \
+	"$HOME/.config/dotfiles/nvim/local.lua" \
+	"$HOME/.config/git/local.inc" \
+	"$HOME/.config/kitty/local.conf"
+do
+	if [[ ! -f "$local_file" || "$(file_mode "$local_file")" != 600 ]]; then
+		permission_failures=$((permission_failures + 1))
+	fi
+done
+if [[ $permission_failures -eq 0 ]]; then
+	pass "local/private override files are mode 600"
+else
+	fail "$permission_failures local/private override files missing or not mode 600"
+fi
+
+if git -C "$repo_root" diff --check; then
+	pass "git diff --check"
+else
+	fail "git diff --check"
+fi
+
+repo_dirt=$(git -C "$repo_root" status --porcelain | wc -l | tr -d ' ')
+if [[ "$repo_dirt" == 0 ]]; then
+	pass "repository is clean"
+else
+	warn "repository has $repo_dirt changed/untracked paths"
+fi
+
+printf '\nSummary: %d pass, %d warning, %d failure\n' "$pass_count" "$warn_count" "$fail_count"
+[[ $fail_count -eq 0 ]]

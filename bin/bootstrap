@@ -1,0 +1,442 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+	cat <<'EOF'
+Usage: bin/bootstrap --profile PROFILE [--dry-run|--apply] [options]
+
+Profiles:
+  linux-personal   common + linux + personal
+  macos-personal   common + macos + personal
+  macos-work       common + macos + work
+
+Options:
+  --dry-run          Report conflicts and intended actions (default)
+  --apply            Back up conflicts and install links
+  --install-packages Install the declared apt/Homebrew packages first
+  --with-cento       Regenerate Cento zsh/tmux snippets (personal only)
+  -h, --help         Show this help
+EOF
+}
+
+die() {
+	printf 'dotfiles bootstrap: %s\n' "$*" >&2
+	exit 1
+}
+
+repo_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+profile=""
+mode=dry-run
+install_packages=0
+with_cento=0
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--profile)
+			[[ $# -ge 2 ]] || die "--profile requires a value"
+			profile=$2
+			shift 2
+			;;
+		--dry-run)
+			mode=dry-run
+			shift
+			;;
+		--apply)
+			mode=apply
+			shift
+			;;
+		--install-packages)
+			install_packages=1
+			shift
+			;;
+		--with-cento)
+			with_cento=1
+			shift
+			;;
+		-h|--help)
+			usage
+			exit 0
+			;;
+		*) die "unknown argument: $1" ;;
+	esac
+done
+
+[[ -n "$profile" ]] || die "choose --profile linux-personal, macos-personal, or macos-work"
+
+case "$profile" in
+	linux-personal)
+		profile_os=linux
+		profile_role=personal
+		stow_packages=(common linux personal)
+		;;
+	macos-personal)
+		profile_os=macos
+		profile_role=personal
+		stow_packages=(common macos personal)
+		;;
+	macos-work)
+		profile_os=macos
+		profile_role=work
+		stow_packages=(common macos work)
+		;;
+	*) die "unsupported profile: $profile" ;;
+esac
+
+if [[ $with_cento -eq 1 && "$profile_role" != personal ]]; then
+	die "--with-cento is not allowed for the work profile"
+fi
+
+case "$(uname -s)" in
+	Linux) actual_os=linux ;;
+	Darwin) actual_os=macos ;;
+	*) actual_os=unsupported ;;
+esac
+
+if [[ "$actual_os" != "$profile_os" && ${DOTFILES_ALLOW_CROSS_PLATFORM:-0} != 1 ]]; then
+	die "profile $profile targets $profile_os, but this host is $actual_os"
+fi
+
+for package in "${stow_packages[@]}"; do
+	[[ -d "$repo_root/stow/$package" ]] || die "missing Stow package: $package"
+done
+
+install_declared_packages() {
+	if [[ "$mode" == dry-run ]]; then
+		printf 'Would install declared packages for %s.\n' "$profile"
+		return
+	fi
+
+	if [[ "$profile_os" == linux ]]; then
+		command -v sudo >/dev/null 2>&1 || die "sudo is required for apt package installation"
+		apt_packages=()
+		while IFS= read -r package_line || [[ -n "$package_line" ]]; do
+			package_line=${package_line%%#*}
+			[[ -n "${package_line//[[:space:]]/}" ]] && apt_packages+=("$package_line")
+		done < "$repo_root/packages/apt-common.txt"
+		sudo apt-get update
+		sudo apt-get install -y "${apt_packages[@]}"
+	else
+		command -v brew >/dev/null 2>&1 || die "Homebrew is required for package installation"
+		brew bundle --file "$repo_root/packages/Brewfile.common"
+		if [[ "$profile_role" == personal ]]; then
+			brew bundle --file "$repo_root/packages/Brewfile.personal"
+		else
+			brew bundle --file "$repo_root/packages/Brewfile.work"
+		fi
+	fi
+}
+
+if [[ $install_packages -eq 1 ]]; then
+	install_declared_packages
+fi
+
+if [[ "$mode" == apply ]]; then
+	command -v stow >/dev/null 2>&1 || die "GNU Stow is missing; rerun with --install-packages or install stow first"
+	if [[ $with_cento -eq 1 ]]; then
+		command -v cento >/dev/null 2>&1 || die "--with-cento requested, but cento is not installed"
+	fi
+fi
+
+backup_stamp=$(date -u +%Y%m%dT%H%M%SZ)
+state_home=${XDG_STATE_HOME:-$HOME/.local/state}
+backup_dir="$state_home/dotfiles/backups/$backup_stamp"
+if [[ -e "$backup_dir" ]]; then
+	backup_dir=$backup_dir-$$
+fi
+backup_created=0
+conflict_count=0
+kitty_saved_contents=""
+
+ensure_backup_dir() {
+	if [[ $backup_created -eq 0 ]]; then
+		umask 077
+		mkdir -p "$backup_dir"
+		chmod 0700 "$backup_dir"
+		backup_created=1
+	fi
+}
+
+backup_conflict() {
+	local relative_path=$1
+	local target=$HOME/$relative_path
+	local destination=$backup_dir/$relative_path
+
+	conflict_count=$((conflict_count + 1))
+	printf '%s conflict: ~/%s\n' "$mode" "$relative_path"
+	if [[ "$mode" != apply ]]; then
+		return 0
+	fi
+
+	ensure_backup_dir
+	mkdir -p "$(dirname "$destination")"
+	if [[ -L "$target" && -f "$target" ]]; then
+		cp -pL "$target" "$destination.contents"
+	fi
+	mv "$target" "$destination"
+}
+
+backup_directory_symlink() {
+	local relative_path=$1
+	local target=$HOME/$relative_path
+	local destination=$backup_dir/$relative_path
+	local kitty_relative suffix
+
+	if [[ ! -L "$target" || ! -d "$target" ]]; then
+		return 0
+	fi
+	conflict_count=$((conflict_count + 1))
+	printf '%s directory-link conflict: ~/%s -> %s\n' "$mode" "$relative_path" "$(readlink "$target")"
+	if [[ "$mode" != apply ]]; then
+		return 0
+	fi
+
+	ensure_backup_dir
+	mkdir -p "$(dirname "$destination")" "$destination.contents"
+	cp -aL "$target"/. "$destination.contents"/
+	mv "$target" "$destination.link"
+
+	# Preserve Kitty runtime state even when the folded link is above Kitty,
+	# for example when the whole ~/.config directory is a symlink.
+	kitty_relative=.config/kitty
+	case "$kitty_relative" in
+		"$relative_path")
+			kitty_saved_contents=$destination.contents
+			;;
+		"$relative_path"/*)
+			suffix=${kitty_relative#"$relative_path"/}
+			kitty_saved_contents=$destination.contents/$suffix
+			;;
+	esac
+}
+
+seed_unmanaged_directory_contents() {
+	local relative_path=$1
+	local source=$backup_dir/$relative_path.contents
+	local target=$HOME/$relative_path
+	local source_path basename
+
+	# Nvim and Kitty are deliberately replaced as complete configuration
+	# namespaces. Kitty's runtime theme state is restored separately below.
+	case "$relative_path" in
+		.config/nvim|.config/kitty) return 0 ;;
+	esac
+
+	if [[ "$relative_path" == .config ]]; then
+		# Preserve unrelated application configuration while keeping the two
+		# fully managed namespaces clean of stale plugins and legacy assets.
+		for source_path in "$source"/* "$source"/.[!.]* "$source"/..?*; do
+			[[ -e "$source_path" || -L "$source_path" ]] || continue
+			basename=${source_path##*/}
+			case "$basename" in
+				nvim|kitty) continue ;;
+			esac
+			cp -a "$source_path" "$target"/
+		done
+	else
+		cp -a "$source"/. "$target"/
+	fi
+}
+
+manifest_file=$(mktemp "${TMPDIR:-/tmp}/dotfiles-manifest.XXXXXX")
+trap 'rm -f "$manifest_file"' EXIT HUP INT TERM
+: > "$manifest_file"
+
+for package in "${stow_packages[@]}"; do
+	package_root=$repo_root/stow/$package
+	while IFS= read -r source_path; do
+		printf '%s\n' "${source_path#"$package_root/"}" >> "$manifest_file"
+	done < <(find "$package_root" \( -type f -o -type l \) -print)
+done
+LC_ALL=C sort -u "$manifest_file" -o "$manifest_file"
+
+# GNU Stow --no-folding needs real target directories. A legacy dotfiles
+# checkout may instead have any ancestor directory folded into one symlink
+# (for example ~/.local/bin or ~/.config/dotfiles). Always handle the shallow
+# ancestor first. Moving a child through such a link would mutate the legacy
+# source tree, so dry-run records the ancestor and stops descending into it;
+# apply backs up the link plus dereferenced contents, unlinks only the link,
+# and creates a real directory before considering deeper ancestors.
+folded_ancestors=()
+
+folded_ancestor_recorded() {
+	local candidate=$1 recorded
+	for recorded in "${folded_ancestors[@]}"; do
+		[[ "$recorded" == "$candidate" ]] && return 0
+	done
+	return 1
+}
+
+record_folded_ancestor() {
+	local candidate=$1
+	folded_ancestor_recorded "$candidate" || folded_ancestors+=("$candidate")
+}
+
+path_is_below_folded_ancestor() {
+	local candidate=$1 recorded
+	for recorded in "${folded_ancestors[@]}"; do
+		case "$candidate" in
+			"$recorded"/*) return 0 ;;
+		esac
+	done
+	return 1
+}
+
+prepare_target_ancestors() {
+	local relative_path=$1
+	local parent remaining component ancestor="" target
+
+	parent=${relative_path%/*}
+	[[ "$parent" != "$relative_path" && "$parent" != . ]] || return 0
+	remaining=$parent
+
+	while [[ -n "$remaining" ]]; do
+		component=${remaining%%/*}
+		if [[ "$remaining" == "$component" ]]; then
+			remaining=""
+		else
+			remaining=${remaining#*/}
+		fi
+		[[ -n "$component" && "$component" != . ]] || continue
+		if [[ -n "$ancestor" ]]; then
+			ancestor=$ancestor/$component
+		else
+			ancestor=$component
+		fi
+
+		# In dry-run the symlink intentionally remains in place. Once it has
+		# been reported, do not inspect any child through the legacy target.
+		if folded_ancestor_recorded "$ancestor"; then
+			[[ "$mode" == dry-run ]] && return 0
+			continue
+		fi
+
+		target=$HOME/$ancestor
+		if [[ -L "$target" && -d "$target" ]]; then
+			record_folded_ancestor "$ancestor"
+			backup_directory_symlink "$ancestor"
+			if [[ "$mode" == apply ]]; then
+				mkdir -p "$target"
+				# Seed the unfolded directory from the private backup so a broad
+				# ~/.config or ~/.local link does not make unrelated applications
+				# disappear. The later leaf-conflict pass operates on this safe
+				# copy, never on the legacy symlink target.
+				seed_unmanaged_directory_contents "$ancestor"
+			else
+				return 0
+			fi
+		elif [[ -L "$target" ]]; then
+			die "ancestor ~/$ancestor is a non-directory or dangling symlink"
+		elif [[ -e "$target" && ! -d "$target" ]]; then
+			die "ancestor ~/$ancestor is not a directory"
+		fi
+	done
+}
+
+while IFS= read -r relative_path || [[ -n "$relative_path" ]]; do
+	[[ -n "$relative_path" ]] || continue
+	prepare_target_ancestors "$relative_path"
+done < "$manifest_file"
+
+while IFS= read -r relative_path || [[ -n "$relative_path" ]]; do
+	[[ -n "$relative_path" ]] || continue
+	if [[ "$mode" == dry-run ]] && path_is_below_folded_ancestor "$relative_path"; then
+		continue
+	fi
+	target=$HOME/$relative_path
+	expected_source=""
+	for package in "${stow_packages[@]}"; do
+		candidate=$repo_root/stow/$package/$relative_path
+		if [[ -e "$candidate" || -L "$candidate" ]]; then
+			expected_source=$candidate
+		fi
+	done
+	[[ -n "$expected_source" ]] || die "cannot resolve source for $relative_path"
+
+	if [[ -L "$target" && "$target" -ef "$expected_source" ]]; then
+		continue
+	fi
+	if [[ -e "$target" || -L "$target" ]]; then
+		backup_conflict "$relative_path"
+	fi
+done < "$manifest_file"
+
+kitty_wrapper=$HOME/.config/kitty/kitty.conf
+check_kitty_wrapper=1
+if [[ "$mode" == dry-run ]] && path_is_below_folded_ancestor .config/kitty/kitty.conf; then
+	check_kitty_wrapper=0
+fi
+if [[ $check_kitty_wrapper -eq 1 ]]; then
+	if [[ -e "$kitty_wrapper" || -L "$kitty_wrapper" ]]; then
+		if ! grep -Fqx 'include dotfiles.conf' "$kitty_wrapper" 2>/dev/null; then
+			backup_conflict .config/kitty/kitty.conf
+		fi
+	fi
+fi
+
+printf 'Profile: %s\nPackages: %s\n' "$profile" "${stow_packages[*]}"
+
+if [[ "$mode" == dry-run ]]; then
+	printf 'Conflicts requiring backup: %d\n' "$conflict_count"
+	printf 'No files were changed. Apply with:\n  %s/bin/bootstrap --profile %s --apply\n' "$repo_root" "$profile"
+	exit 0
+fi
+
+# `--restow` first scans unrelated links in the target home and GNU Stow 2.3
+# can choke on absolute links owned by Steam/Cento. Conflicts are already
+# handled above, so the stow-only phase is sufficient and stays in scope.
+stow --dir "$repo_root/stow" --target "$HOME" --no-folding --stow "${stow_packages[@]}"
+
+mkdir -p "$HOME/.config/kitty"
+if [[ ! -e "$kitty_wrapper" && ! -L "$kitty_wrapper" ]]; then
+	cp "$repo_root/templates/kitty.conf" "$kitty_wrapper"
+	chmod 0644 "$kitty_wrapper"
+fi
+
+if [[ -n "$kitty_saved_contents" && -d "$kitty_saved_contents" ]]; then
+	for runtime_file in current-theme.conf dark-theme.auto.conf light-theme.auto.conf no-preference-theme.auto.conf; do
+		if [[ -f "$kitty_saved_contents/$runtime_file" && ! -e "$HOME/.config/kitty/$runtime_file" ]]; then
+			cp -p "$kitty_saved_contents/$runtime_file" "$HOME/.config/kitty/$runtime_file"
+		fi
+	done
+	if [[ -d "$kitty_saved_contents/themes" ]]; then
+		mkdir -p "$HOME/.config/kitty/themes"
+		for runtime_theme in "$kitty_saved_contents"/themes/*.conf; do
+			[[ -f "$runtime_theme" ]] || continue
+			theme_target=$HOME/.config/kitty/themes/$(basename "$runtime_theme")
+			[[ -e "$theme_target" || -L "$theme_target" ]] || cp -p "$runtime_theme" "$theme_target"
+		done
+	fi
+fi
+
+if [[ ! -e "$HOME/.config/kitty/current-theme.conf" ]]; then
+	: > "$HOME/.config/kitty/current-theme.conf"
+	chmod 0644 "$HOME/.config/kitty/current-theme.conf"
+fi
+
+umask 077
+for local_file in \
+	"$HOME/.config/dotfiles/local.zsh" \
+	"$HOME/.config/dotfiles/tmux/local.conf" \
+	"$HOME/.config/dotfiles/nvim/local.lua" \
+	"$HOME/.config/git/local.inc" \
+	"$HOME/.config/kitty/local.conf"
+do
+	mkdir -p "$(dirname "$local_file")"
+	if [[ ! -e "$local_file" ]]; then
+		: > "$local_file"
+	fi
+	chmod 0600 "$local_file"
+done
+
+if [[ $with_cento -eq 1 ]]; then
+	cento install zsh
+	cento install tmux
+fi
+
+if [[ $backup_created -eq 1 ]]; then
+	printf 'Backup: %s\n' "$backup_dir"
+else
+	printf 'Backup: not needed\n'
+fi
+printf 'Installed profile %s. Validate with %s/bin/dotfiles-doctor\n' "$profile" "$repo_root"

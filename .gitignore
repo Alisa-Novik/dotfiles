@@ -1,0 +1,26 @@
+# Machine-local/private overlays
+**/.config/dotfiles/local.zsh
+**/.config/dotfiles/tmux/local.conf
+**/.config/dotfiles/nvim/local.lua
+**/.config/git/local.inc
+**/.config/kitty/local.conf
+
+# Generated Kitty/Cento theme state
+**/.config/kitty/current-theme.conf
+**/.config/kitty/*-theme.auto.conf
+**/.config/kitty/themes/Cento *.conf
+**/.config/kitty/kitty.conf.bak
+
+# Generated/editor state
+**/__pycache__/
+**/*.pyc
+**/*.swp
+**/*.swo
+**/*~
+.DS_Store
+
+# Local migration evidence and secrets
+.env
+.env.*
+!.env.example
+backups/

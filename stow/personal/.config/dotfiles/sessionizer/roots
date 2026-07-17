@@ -1,0 +1,7 @@
+# One directory root per line. tmux-sessionizer lists immediate children.
+~/projects
+~/work/builds
+~/work
+~/personal
+~/personal/yt
+~

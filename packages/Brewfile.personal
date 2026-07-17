@@ -1,0 +1,2 @@
+# Personal-only terminal dependencies belong here. Cento itself has a separate
+# installer and remains outside the dotfiles package graph.

@@ -1,0 +1,21 @@
+[include]
+	path = ~/.config/git/profile.inc
+	path = ~/.config/git/local.inc
+
+[alias]
+	co = checkout
+	br = branch
+	ci = commit
+	st = status
+
+[core]
+	editor = nvim
+
+[init]
+	defaultBranch = main
+
+[fetch]
+	prune = true
+
+[push]
+	autoSetupRemote = true
