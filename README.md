@@ -18,7 +18,7 @@ generated state stay outside Git.
 Clone to the same path everywhere:
 
 ```bash
-git clone git@github.com:Alisa-Novik/dotfiles.git ~/.dotfiles
+git clone https://github.com/Alisa-Novik/dotfiles.git ~/.dotfiles
 cd ~/.dotfiles
 ./bin/bootstrap --profile linux-personal --dry-run
 ./bin/bootstrap --profile linux-personal --apply
@@ -30,6 +30,18 @@ separate, explicit action:
 
 ```bash
 ./bin/bootstrap --profile macos-personal --apply --install-packages
+```
+
+The work Mac is intentionally outside the Cento registry. Bootstrap it locally
+from this public GitHub repository, never use `--with-cento`, and select only
+the isolated work profile:
+
+```bash
+git clone https://github.com/Alisa-Novik/dotfiles.git ~/.dotfiles
+cd ~/.dotfiles
+./bin/bootstrap --profile macos-work --dry-run
+./bin/bootstrap --profile macos-work --apply
+./bin/dotfiles-doctor
 ```
 
 The installer never silently adopts an existing file. On `--apply`, every
@@ -47,6 +59,8 @@ conflict is moved into a timestamped private directory under
   local runtime state. The wrapper includes the Stow-owned `dotfiles.conf`.
 - `~/.config/cento/*`: generated and owned by Cento. The tracked zsh/tmux
   entrypoints contain guarded source markers only for personal profiles.
+- The work Mac is never a Cento node. Its `macos-work` profile is installed
+  locally from GitHub and contains no Cento/OpenClaw or personal state.
 
 Neovim intentionally uses built-in netrw (`<leader>e`, `<C-e>`) and keeps
 Harpoon 2. Ripgrep defaults live in `~/.config/ripgrep/config`. In tmux,

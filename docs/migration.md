@@ -40,8 +40,10 @@ The work Mac is deliberately isolated by the `work` overlay:
 - roots limited to `~/work` and `~/projects`;
 - company values go in mode-600 local files and never in this repository.
 
-Because the work Mac is not currently registered as a Cento node, begin with
-the dry-run and retain its backup receipt for later reconciliation.
+The work Mac must remain outside the Cento registry. Clone the public GitHub
+repository and run the bootstrap locally; never install or source Cento there,
+and never pass `--with-cento`. Begin with the dry-run and retain its backup
+receipt for local reconciliation.
 
 ## Validation
 
