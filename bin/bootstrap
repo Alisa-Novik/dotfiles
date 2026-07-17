@@ -257,7 +257,10 @@ LC_ALL=C sort -u "$manifest_file" -o "$manifest_file"
 # source tree, so dry-run records the ancestor and stops descending into it;
 # apply backs up the link plus dereferenced contents, unlinks only the link,
 # and creates a real directory before considering deeper ancestors.
-folded_ancestors=()
+# Bash 3.2 with `set -u` treats an expanded, declared-but-empty array as
+# unbound. Keep one empty sentinel so the shared macOS system Bash can safely
+# iterate before the first folded ancestor is discovered.
+folded_ancestors=("")
 
 folded_ancestor_recorded() {
 	local candidate=$1 recorded

@@ -44,7 +44,9 @@ else
 		exit 1
 	fi
 
-	roots=()
+	# Bash 3.2 + nounset cannot expand a declared-but-empty array. Start with
+	# an empty sentinel and skip it when enumerating candidate roots.
+	roots=("")
 	if [[ -r "$config_file" ]]; then
 		while IFS= read -r configured_root || [[ -n "$configured_root" ]]; do
 			configured_root=$(trim_whitespace "$configured_root")
@@ -53,7 +55,7 @@ else
 		done < "$config_file"
 	fi
 
-	if [[ ${#roots[@]} -eq 0 ]]; then
+	if [[ ${#roots[@]} -eq 1 ]]; then
 		roots=("$HOME/projects" "$HOME/work" "$HOME")
 	fi
 
@@ -61,7 +63,7 @@ else
 	trap 'rm -f "$candidate_file"' EXIT HUP INT TERM
 
 	for root in "${roots[@]}"; do
-		[[ -d "$root" ]] || continue
+		[[ -n "$root" && -d "$root" ]] || continue
 		for candidate in "$root"/*; do
 			[[ -d "$candidate" ]] || continue
 			printf '%s\n' "$candidate" >> "$candidate_file"
