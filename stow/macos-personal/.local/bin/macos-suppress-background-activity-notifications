@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# macOS sends every "App Background Activity" banner through this hidden
+# Notification Center source, regardless of the executable named in the
+# banner. Clearing only its Allow Notifications bit leaves Background Task
+# Management, Login Items, and their security records untouched.
+bundle_id=com.apple.BTMNotificationAgent
+allow_notifications_bit=$((1 << 25))
+preferences=""
+
+for candidate in \
+	"$HOME/Library/Group Containers/group.com.apple.usernoted/Library/Preferences/group.com.apple.usernoted.plist" \
+	"$HOME/Library/Preferences/com.apple.ncprefs.plist"
+do
+	if [[ -f "$candidate" ]]; then
+		preferences=$candidate
+		break
+	fi
+done
+
+if [[ -z "$preferences" ]]; then
+	printf 'Background-activity notification preferences do not exist yet.\n' >&2
+	exit 1
+fi
+
+app_index=0
+found=0
+while current_bundle_id=$(plutil -extract "apps.$app_index.bundle-id" raw "$preferences" 2>/dev/null); do
+	if [[ "$current_bundle_id" == "$bundle_id" ]]; then
+		found=1
+		break
+	fi
+	app_index=$((app_index + 1))
+done
+
+if [[ $found -ne 1 ]]; then
+	printf 'Notification source %s is not registered yet.\n' "$bundle_id" >&2
+	exit 1
+fi
+
+current_flags=$(plutil -extract "apps.$app_index.flags" raw "$preferences")
+case "$current_flags" in
+	''|*[!0-9]*)
+		printf 'Invalid Notification Center flags for %s: %s\n' "$bundle_id" "$current_flags" >&2
+		exit 1
+		;;
+esac
+
+new_flags=$((current_flags & ~allow_notifications_bit))
+if [[ $new_flags -eq $current_flags ]]; then
+	printf 'Background-activity notifications are already disabled.\n'
+	exit 0
+fi
+
+backup_root=${DOTFILES_BACKUP_DIR:-"${XDG_STATE_HOME:-$HOME/.local/state}/dotfiles/backups/$(date -u +%Y%m%dT%H%M%SZ)"}
+relative_preferences=${preferences#"$HOME/"}
+backup_path=$backup_root/$relative_preferences
+if [[ -e "$backup_path" ]]; then
+	backup_path=$backup_path.before-background-activity-notifications
+fi
+
+umask 077
+mkdir -p "$(dirname "$backup_path")"
+chmod 0700 "$backup_root"
+cp -p "$preferences" "$backup_path"
+
+plutil -replace "apps.$app_index.flags" -integer "$new_flags" "$preferences"
+
+# These are per-user services. Restarting them makes the new preference take
+# effect immediately and dismisses any banners that are already on screen.
+killall -9 usernoted cfprefsd 2>/dev/null || true
+killall NotificationCenter 2>/dev/null || true
+/bin/sleep 0.3
+
+persisted_flags=$(plutil -extract "apps.$app_index.flags" raw "$preferences")
+if ((persisted_flags & allow_notifications_bit)); then
+	cp -p "$backup_path" "$preferences"
+	printf 'macOS did not retain the notification setting; restored %s\n' "$preferences" >&2
+	exit 1
+fi
+
+printf 'Disabled all App Background Activity notifications.\n'
+printf 'Notification preferences backup: %s\n' "$backup_path"

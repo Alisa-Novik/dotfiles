@@ -200,6 +200,7 @@ end ---@diagnostic disable-next-line: undefined-field
 vim.opt.rtp:prepend(lazypath)
 
 require("lazy").setup({
+	{ "craftzdog/solarized-osaka.nvim", lazy = true },
 	{
 		"supermaven-inc/supermaven-nvim",
 		config = function()
@@ -304,6 +305,9 @@ require("lazy").setup({
 						vim.opt_local.textwidth = opts.textwidth
 					end
 					vim.opt_local.spell = true
+					if vim.bo.filetype == "markdown" or vim.bo.filetype == "mkd" then
+						vim.opt_local.scrolloff = 3
+					end
 				end)
 			end
 
@@ -954,11 +958,12 @@ require("lazy").setup({
 	},
 	{ -- Highlight, edit, and navigate code
 		"nvim-treesitter/nvim-treesitter",
+		branch = "main",
+		lazy = false,
 		build = ":TSUpdate",
-		main = "nvim-treesitter.configs", -- Sets main module to use for opts
-		-- [[ Configure Treesitter ]] See `:help nvim-treesitter`
-		opts = {
-			ensure_installed = {
+		config = function()
+			local treesitter = require("nvim-treesitter")
+			local parsers = {
 				"bash",
 				"c",
 				"diff",
@@ -972,18 +977,24 @@ require("lazy").setup({
 				"vimdoc",
 				"java",
 				"php",
-			},
-			-- Autoinstall languages that are not installed
-			auto_install = true,
-			highlight = {
-				enable = true,
-				-- Some languages depend on vim's regex highlighting system (such as Ruby) for indent rules.
-				--  If you are experiencing weird indenting issues, add the language to
-				--  the list of additional_vim_regex_highlighting and disabled languages for indent.
-				additional_vim_regex_highlighting = { "ruby" },
-			},
-			indent = { enable = true, disable = { "ruby" } },
-		},
+			}
+
+			treesitter.install(parsers)
+
+			vim.api.nvim_create_autocmd("FileType", {
+				group = vim.api.nvim_create_augroup("TreesitterStart", { clear = true }),
+				callback = function(args)
+					local filetype = vim.bo[args.buf].filetype
+					local language = vim.treesitter.language.get_lang(filetype)
+					if language and vim.treesitter.language.add(language) then
+						vim.treesitter.start(args.buf, language)
+						if language ~= "ruby" then
+							vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+						end
+					end
+				end,
+			})
+		end,
 		--    - Incremental selection: Included, see `:help nvim-treesitter-incremental-selection-mod`
 		--    - Show your current context: https://github.com/nvim-treesitter/nvim-treesitter-context
 		--    - Treesitter + textobjects: https://github.com/nvim-treesitter/nvim-treesitter-textobjects

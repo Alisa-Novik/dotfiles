@@ -1,2 +1,11 @@
-# Personal-only terminal dependencies belong here. Cento itself has a separate
-# installer and remains outside the dotfiles package graph.
+# Personal-only macOS desktop dependencies belong here. Cento itself has a
+# separate installer and remains outside the dotfiles package graph.
+
+tap "asmvik/formulae"
+tap "FelixKratz/formulae"
+tap "nikitabobko/tap"
+
+brew "asmvik/formulae/yabai"
+brew "felixkratz/formulae/borders"
+
+cask "nikitabobko/tap/aerospace"

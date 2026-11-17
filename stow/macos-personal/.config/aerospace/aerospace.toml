@@ -1,0 +1,180 @@
+# AeroSpace: i3-like window management for a personal Mac.
+
+config-version = 2
+
+start-at-login = true
+auto-reload-config = true
+
+# Choose the terminal once at startup, then open missing apps in the background.
+# The coordinator preserves existing layouts and never changes focus.
+# Config reloads never rerun startup or reset the desktop.
+after-startup-command = [
+    'workspace 2',
+    'exec-and-forget "$HOME/.local/bin/aerospace-session-start"',
+]
+
+# Keep the tree predictable while still allowing nested i3-like containers
+# through join-with in service mode.
+enable-normalization-flatten-containers = true
+enable-normalization-opposite-orientation-for-nested-containers = true
+
+default-root-container-layout = 'tiles'
+default-root-container-orientation = 'auto'
+accordion-padding = 24
+
+# i3-like behavior: macOS hidden apps should reappear when their workspace is
+# focused instead of remaining mysteriously hidden behind Cmd-H state.
+automatically-unhide-macos-hidden-apps = true
+focus-follows-mouse.enabled = false
+on-focused-monitor-changed = ['move-mouse monitor-lazy-center']
+
+# Inspect leaked snapshots after navigation and fullscreen/focus transitions.
+# Only a proven noninteractive snapshot is moved; normal app windows stay put.
+on-focus-changed = [
+    'exec-and-forget "$HOME/.local/bin/aerospace-clear-stale-snapshots" --background',
+    # Empty workspaces need a desktop focus target to leave native fullscreen.
+    # The helper rechecks that this exact workspace is still focused and empty.
+    'exec-and-forget "$HOME/.local/bin/aerospace-empty-desktop" "$AEROSPACE_WORKSPACE"',
+]
+exec-on-workspace-change = ['/bin/bash', '-c',
+    '"$HOME/.local/bin/aerospace-clear-stale-snapshots" --background </dev/null >/dev/null 2>&1 &',
+]
+
+# Keep the numbered workspace model stable, including empty workspaces.
+persistent-workspaces = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
+
+# App placement. Firefox profiles share one bundle ID, so the router resolves
+# the live profile directory before choosing workspace 1, 3, or 4.
+# Existing windows are remembered by startup; only newly created windows route.
+# Unmapped apps are left where the user put them.
+on-window-detected = [
+    { if = 'test "%{app-name}" = java && test "%{window-title}" ~= "^Minecraft"', run = 'move-node-to-workspace 6' },
+    { if = 'test %{app-bundle-id} = local.aerospace.empty-desktop', run = 'true' },
+    { if = { during-aerospace-startup = false }, check-further-callbacks = true, run = 'exec-and-forget "$HOME/.local/bin/aerospace-route-window" "$AEROSPACE_WINDOW_ID"' },
+    # Telegram's reusable media AXDialog must stay attached to and above its
+    # parent window. The router repeats this classification after title races.
+    { if = 'test %{app-bundle-id} = com.tdesktop.Telegram && test "%{window-title}" = "Media viewer"', run = 'layout floating' },
+    { if = 'test %{app-bundle-id} = com.apple.systempreferences', run = 'layout floating' },
+    { if = 'test %{app-bundle-id} = com.apple.calculator', run = 'layout floating' },
+    { if = 'test %{app-bundle-id} = com.apple.ActivityMonitor', run = 'layout floating' },
+]
+
+gaps.inner.horizontal = 8
+gaps.inner.vertical = 8
+gaps.outer.left = 12
+gaps.outer.bottom = 12
+gaps.outer.top = 12
+gaps.outer.right = 12
+
+[mode.main.binding]
+    # Launch terminal apps.
+    alt-enter = 'exec-and-forget /opt/homebrew/bin/kitty --single-instance --directory "$HOME"'
+    alt-shift-enter = 'exec-and-forget /usr/bin/open -na /Applications/kitty.app'
+
+    # Focus and move, Vim/i3 style.
+    alt-h = 'focus left'
+    alt-j = 'focus down'
+    alt-k = 'focus up'
+    alt-l = 'focus right'
+
+    alt-shift-h = 'move left'
+    alt-shift-j = 'move down'
+    alt-shift-k = 'move up'
+    alt-shift-l = 'move right'
+
+    # Layout and window state.
+    alt-e = 'layout tiles horizontal vertical'
+    alt-w = 'layout accordion horizontal vertical'
+    alt-space = 'layout tiles accordion'
+    alt-shift-space = 'layout floating tiling'
+    # The same AeroSpace fullscreen model in every application.
+    alt-f = 'fullscreen --no-outer-gaps'
+    cmd-ctrl-f = 'fullscreen --no-outer-gaps'
+    # Explicitly leave native fullscreen entered through an application's UI.
+    alt-shift-f = 'macos-native-fullscreen off'
+    alt-b = 'balance-sizes'
+    # Local repair preserves window placement, nesting, and floating windows.
+    alt-shift-a = 'balance-sizes'
+    # Cmd-W stays application-owned. Ctrl-Shift-X belongs to Kitty.
+
+    # Quick resize plus a dedicated resize mode.
+    alt-minus = 'resize smart -50'
+    alt-equal = 'resize smart +50'
+    alt-r = 'mode resize'
+
+    # Execute navigation directly in AeroSpace, in key-event order.
+    # No asynchronous shell processes or service recovery on the hotkey path.
+    alt-1 = 'workspace 1'
+    alt-2 = 'workspace 2'
+    alt-3 = 'workspace 3'
+    alt-4 = 'workspace 4'
+    alt-5 = 'workspace 5'
+    # Also retry the empty-desktop callback if workspace 6 was already selected.
+    alt-6 = 'workspace 6; run-callback on-focus-changed'
+    alt-7 = 'workspace 7'
+    alt-8 = 'workspace 8'
+    alt-9 = 'workspace 9'
+    alt-0 = 'workspace 10'
+
+    # Move the focused window and follow it, matching the old requested flow.
+    alt-shift-1 = 'move-node-to-workspace --focus-follows-window 1'
+    alt-shift-2 = 'move-node-to-workspace --focus-follows-window 2'
+    alt-shift-3 = 'move-node-to-workspace --focus-follows-window 3'
+    alt-shift-4 = 'move-node-to-workspace --focus-follows-window 4'
+    alt-shift-5 = 'move-node-to-workspace --focus-follows-window 5'
+    alt-shift-6 = 'move-node-to-workspace --focus-follows-window 6'
+    alt-shift-7 = 'move-node-to-workspace --focus-follows-window 7'
+    alt-shift-8 = 'move-node-to-workspace --focus-follows-window 8'
+    alt-shift-9 = 'move-node-to-workspace --focus-follows-window 9'
+    alt-shift-0 = 'move-node-to-workspace --focus-follows-window 10'
+
+    alt-tab = 'workspace-back-and-forth'
+    alt-shift-r = 'reload-config'
+    alt-shift-semicolon = 'mode service'
+
+[mode.resize.binding]
+    # Navigating away also exits this mode.
+    alt-1 = ['mode main', 'workspace 1']
+    alt-2 = ['mode main', 'workspace 2']
+    alt-3 = ['mode main', 'workspace 3']
+    alt-4 = ['mode main', 'workspace 4']
+    alt-5 = ['mode main', 'workspace 5']
+    alt-6 = ['mode main', 'workspace 6', 'run-callback on-focus-changed']
+    alt-7 = ['mode main', 'workspace 7']
+    alt-8 = ['mode main', 'workspace 8']
+    alt-9 = ['mode main', 'workspace 9']
+    alt-0 = ['mode main', 'workspace 10']
+    alt-tab = ['mode main', 'workspace-back-and-forth']
+
+    h = 'resize width -50'
+    j = 'resize height +50'
+    k = 'resize height -50'
+    l = 'resize width +50'
+    minus = 'resize smart -50'
+    equal = 'resize smart +50'
+    enter = 'mode main'
+    esc = 'mode main'
+    alt-r = 'mode main'
+
+[mode.service.binding]
+    # Navigating away also exits this mode.
+    alt-1 = ['mode main', 'workspace 1']
+    alt-2 = ['mode main', 'workspace 2']
+    alt-3 = ['mode main', 'workspace 3']
+    alt-4 = ['mode main', 'workspace 4']
+    alt-5 = ['mode main', 'workspace 5']
+    alt-6 = ['mode main', 'workspace 6', 'run-callback on-focus-changed']
+    alt-7 = ['mode main', 'workspace 7']
+    alt-8 = ['mode main', 'workspace 8']
+    alt-9 = ['mode main', 'workspace 9']
+    alt-0 = ['mode main', 'workspace 10']
+    alt-tab = ['mode main', 'workspace-back-and-forth']
+
+    esc = 'mode main'
+    enter = 'mode main'
+    r = ['flatten-workspace-tree', 'mode main']
+    f = ['layout floating tiling', 'mode main']
+    alt-shift-h = ['join-with left', 'mode main']
+    alt-shift-j = ['join-with down', 'mode main']
+    alt-shift-k = ['join-with up', 'mode main']
+    alt-shift-l = ['join-with right', 'mode main']

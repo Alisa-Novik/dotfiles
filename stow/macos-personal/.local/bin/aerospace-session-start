@@ -1,0 +1,253 @@
+#!/usr/bin/env bash
+
+# One desktop bootstrap coordinator. Remember existing windows, start missing
+# apps, then route only new windows. Initial workspace selection belongs to the
+# synchronous config callback. This background helper never changes focus.
+
+set -u
+
+PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+AEROSPACE_BIN="${AEROSPACE_BIN:-/opt/homebrew/bin/aerospace}"
+ROUTER="${AEROSPACE_ROUTER:-${HOME}/.local/bin/aerospace-route-window}"
+PS_BIN="${AEROSPACE_PS_BIN:-/bin/ps}"
+LSOF_BIN="${AEROSPACE_LSOF_BIN:-/usr/sbin/lsof}"
+OPEN_BIN="${AEROSPACE_OPEN_BIN:-/usr/bin/open}"
+STATE_DIR="${HOME}/.local/state"
+LOG_FILE="${STATE_DIR}/aerospace-session-start.log"
+GRACE_SECONDS="${AEROSPACE_SESSION_GRACE_SECONDS:-0}"
+DRY_RUN=0
+pending_bundles=""
+
+usage() {
+  printf 'Usage: %s [--dry-run] [--no-wait]\n' "${0##*/}"
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run)
+      DRY_RUN=1
+      GRACE_SECONDS=0
+      ;;
+    --no-wait)
+      GRACE_SECONDS=0
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Unknown option: %s\n' "$arg" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+log() {
+  local line
+  line="$(/bin/date '+%Y-%m-%d %H:%M:%S') $*"
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '%s\n' "$line"
+  else
+    /bin/mkdir -p "$STATE_DIR"
+    printf '%s\n' "$line" >> "$LOG_FILE"
+  fi
+}
+
+fail() {
+  printf 'AeroSpace startup: %s\n' "$*" >&2
+  log "ERROR $*"
+  return 1
+}
+
+if [ ! -x "$AEROSPACE_BIN" ] || [ ! -x "$ROUTER" ]; then
+  fail "AeroSpace CLI or routing helper is missing; startup skipped"
+  exit 1
+fi
+
+has_app() {
+  printf '%s\n' "$known_apps" | /usr/bin/grep -Fqx "$1"
+}
+
+firefox_default_profile_basename() {
+  local profiles_ini="${HOME}/Library/Application Support/Firefox/profiles.ini"
+  [ -r "$profiles_ini" ] || return 1
+
+  /usr/bin/awk -F= '
+    function emit() {
+      if (name == "default-release" && profile_path != "") {
+        sub(/^.*\//, "", profile_path)
+        print profile_path
+        found = 1
+        exit
+      }
+    }
+    /^\[/ { if (!found) emit(); name = ""; profile_path = ""; next }
+    $1 == "Name" { name = substr($0, index($0, "=") + 1); next }
+    $1 == "Path" { profile_path = substr($0, index($0, "=") + 1); next }
+    END { if (!found) emit() }
+  ' "$profiles_ini"
+}
+
+firefox_profile_basename() {
+  local process_pid="$1"
+  local profile_path
+
+  profile_path="$("$LSOF_BIN" -a -p "$process_pid" -Fn 2>/dev/null \
+    | /usr/bin/sed -n 's/^n\(.*\)\/\.parentlock$/\1/p' \
+    | /usr/bin/head -n 1)"
+  [ -n "$profile_path" ] || return 1
+  /usr/bin/printf '%s\n' "${profile_path##*/}"
+}
+
+firefox_is_default_profile() {
+  local process_pid="$1"
+  local process_command="$2"
+  local active_profile default_profile
+
+  if [[ "$process_command" =~ (^|[[:space:]])-P[[:space:]]+default-release([[:space:]]|$) ]]; then
+    return 0
+  fi
+  if [[ "$process_command" =~ (^|[[:space:]])-P[[:space:]]+[^[:space:]]+ ]]; then
+    return 1
+  fi
+  active_profile="$(firefox_profile_basename "$process_pid" 2>/dev/null || true)"
+  default_profile="$(firefox_default_profile_basename 2>/dev/null || true)"
+  if [ -n "$active_profile" ] && [ -n "$default_profile" ]; then
+    [ "$active_profile" = "$default_profile" ]
+    return
+  fi
+
+  # Unknown profiles are treated as primary so startup never launches a
+  # duplicate normal Firefox merely because profile inspection was blocked.
+  return 0
+}
+
+normal_firefox_running() {
+  local process_pid process_command
+  while read -r process_pid process_command; do
+    [[ "$process_command" == /Applications/Firefox.app/Contents/MacOS/firefox* ]] || continue
+    if firefox_is_default_profile "$process_pid" "$process_command"; then
+      return 0
+    fi
+  done < <("$PS_BIN" -axo pid=,command=)
+  return 1
+}
+
+ensure_normal_firefox() {
+  local app_path="/Applications/Firefox.app"
+
+  if normal_firefox_running; then
+    log "Firefox normal already running; skipped"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "would launch Firefox normal"
+    return 0
+  fi
+
+  # -n is required when an independent secondary profile is already running.
+  if "$OPEN_BIN" -g -n "$app_path" --args -no-remote -P default-release; then
+    log "launched Firefox normal"
+    pending_bundles="$pending_bundles org.mozilla.firefox"
+  else
+    fail "failed to launch Firefox normal"
+    return 1
+  fi
+}
+
+ensure_app() {
+  local bundle_id="$1"
+  local app_path="$2"
+  local app_name="${app_path##*/}"
+  app_name="${app_name%.app}"
+
+  if has_app "$bundle_id"; then
+    log "$app_name already running; skipped"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    log "would launch $app_name"
+    return 0
+  fi
+
+  if "$OPEN_BIN" -g "$app_path"; then
+    log "launched $app_name"
+    pending_bundles="$pending_bundles $bundle_id"
+  else
+    fail "failed to launch $app_name"
+    return 1
+  fi
+}
+
+window_snapshot() {
+  "$AEROSPACE_BIN" list-windows --all \
+    --format '%{window-id}%{tab}%{app-pid}%{tab}%{app-bundle-id}%{tab}%{window-title}'
+}
+
+wait_for_new_windows() {
+  local attempt windows window_id app_pid bundle_id window_title observed complete pending
+  [ -n "$pending_bundles" ] || return 0
+  attempt=0
+  while [ "$attempt" -lt 50 ]; do
+    if ! windows="$(window_snapshot)"; then
+      fail "could not inspect newly launched windows"
+      return 1
+    fi
+    observed=" "
+    while IFS=$'\t' read -r window_id app_pid bundle_id window_title; do
+      [ -n "$window_id" ] || continue
+      /usr/bin/grep -Fqx "$window_id" <<< "$initial_window_ids" && continue
+      case " $pending_bundles " in
+        *" $bundle_id "*)
+          "$ROUTER" --quiet -- "$window_id" "$app_pid" "$bundle_id" "$window_title" || return 1
+          observed="$observed$bundle_id "
+          ;;
+      esac
+    done <<< "$windows"
+    complete=1
+    for pending in $pending_bundles; do
+      case "$observed" in *" $pending "*) ;; *) complete=0 ;; esac
+    done
+    [ "$complete" -eq 0 ] || return 0
+    /bin/sleep 0.1
+    attempt=$((attempt + 1))
+  done
+  fail "some launched apps did not expose new windows before the startup timeout:$pending_bundles"
+  return 1
+}
+
+log "startup profile begin"
+startup_status=0
+if [ "$GRACE_SECONDS" -gt 0 ]; then
+  /bin/sleep "$GRACE_SECONDS"
+fi
+if ! initial_windows="$(window_snapshot)" \
+  || ! known_apps="$("$AEROSPACE_BIN" list-apps --format '%{app-bundle-id}')"; then
+  fail "could not inspect the existing desktop; startup skipped"
+  exit 1
+fi
+initial_window_ids="$(printf '%s\n' "$initial_windows" | /usr/bin/cut -f1)"
+
+if [ "$DRY_RUN" -eq 0 ]; then
+  while IFS=$'\t' read -r window_id app_pid bundle_id window_title; do
+    [ -n "$window_id" ] || continue
+    "$ROUTER" --remember --quiet -- "$window_id" "$app_pid" "$bundle_id" "$window_title" \
+      || startup_status=1
+  done <<< "$initial_windows"
+fi
+
+ensure_normal_firefox || startup_status=1
+ensure_app "net.kovidgoyal.kitty" "/Applications/kitty.app" || startup_status=1
+ensure_app "com.tdesktop.Telegram" "/Applications/Telegram.app" || startup_status=1
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  log "would preserve existing windows and route newly launched windows without changing focus"
+else
+  wait_for_new_windows || startup_status=1
+fi
+log "startup profile complete (status=$startup_status)"
+exit "$startup_status"

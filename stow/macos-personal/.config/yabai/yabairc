@@ -1,0 +1,5 @@
+#!/bin/sh
+
+# Keep launchd's executable set directly to yabai so macOS does not register a
+# generic `sh` background item. The actual helper policy stays in one file.
+"$HOME/.config/yabai/aerospace-animation-helper.sh"

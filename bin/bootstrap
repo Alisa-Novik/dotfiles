@@ -8,7 +8,7 @@ Usage: bin/bootstrap --profile PROFILE [--dry-run|--apply] [options]
 
 Profiles:
   linux-personal   common + linux + personal
-  macos-personal   common + macos + personal
+  macos-personal   common + macos + personal + macos-personal
   macos-work       common + macos + work
 
 Options:
@@ -73,7 +73,7 @@ case "$profile" in
 	macos-personal)
 		profile_os=macos
 		profile_role=personal
-		stow_packages=(common macos personal)
+		stow_packages=(common macos personal macos-personal)
 		;;
 	macos-work)
 		profile_os=macos
@@ -120,6 +120,15 @@ install_declared_packages() {
 		command -v brew >/dev/null 2>&1 || die "Homebrew is required for package installation"
 		brew bundle --file "$repo_root/packages/Brewfile.common"
 		if [[ "$profile_role" == personal ]]; then
+			# The personal Mac desktop uses maintained upstream taps. Homebrew's
+			# current trust gate must be satisfied before their formulae load.
+			brew tap asmvik/formulae
+			brew tap FelixKratz/formulae
+			brew tap nikitabobko/tap
+			if brew help trust >/dev/null 2>&1; then
+				brew trust --formula asmvik/formulae/yabai
+				brew trust --formula felixkratz/formulae/borders
+			fi
 			brew bundle --file "$repo_root/packages/Brewfile.personal"
 		else
 			brew bundle --file "$repo_root/packages/Brewfile.work"
@@ -377,6 +386,19 @@ if [[ $check_kitty_wrapper -eq 1 ]]; then
 	fi
 fi
 
+# launchd rejects Stow symlinks for this agent on current macOS. Keep the
+# plist versioned as a template, but install it as a managed regular copy.
+if [[ "$profile" == macos-personal ]]; then
+	helper_label=com.anovik-air.yabai-animation-helper
+	helper_template="$repo_root/launchd/$helper_label.plist"
+	helper_plist="$HOME/Library/LaunchAgents/$helper_label.plist"
+	if ! cmp -s "$helper_template" "$helper_plist"; then
+		if [[ -e "$helper_plist" || -L "$helper_plist" ]]; then
+			backup_conflict "Library/LaunchAgents/$helper_label.plist"
+		fi
+	fi
+fi
+
 printf 'Profile: %s\nPackages: %s\n' "$profile" "${stow_packages[*]}"
 
 if [[ "$mode" == dry-run ]]; then
@@ -435,6 +457,61 @@ done
 if [[ $with_cento -eq 1 ]]; then
 	cento install zsh
 	cento install tmux
+fi
+
+if [[ "$profile" == macos-personal ]]; then
+	helper_label=com.anovik-air.yabai-animation-helper
+	helper_domain="gui/$(id -u)"
+	helper_template="$repo_root/launchd/$helper_label.plist"
+	helper_plist="$HOME/Library/LaunchAgents/$helper_label.plist"
+	mkdir -p "$HOME/Library/LaunchAgents"
+	if ! cmp -s "$helper_template" "$helper_plist"; then
+		cp "$helper_template" "$helper_plist"
+		chmod 0644 "$helper_plist"
+	fi
+
+	# Preserve the personal profile's suppression of hidden Notification Center
+	# "App Background Activity" notifications. This changes presentation only;
+	# BTM and its security database continue running normally.
+	notification_suppressed=0
+	if DOTFILES_BACKUP_DIR="$backup_dir" \
+		"$HOME/.local/bin/macos-suppress-background-activity-notifications"
+	then
+		notification_suppressed=1
+	else
+		printf 'Warning: App Background Activity notifications could not be disabled yet.\n' >&2
+	fi
+	if [[ -d "$backup_dir" ]]; then
+		backup_created=1
+	fi
+
+	# AeroSpace owns layout, fullscreen, and workspace navigation. Keep legacy
+	# window-manager services disabled; their files remain available for an
+	# explicit opt-in or rollback, but bootstrap must not revive them.
+	launchctl disable "$helper_domain/com.asmvik.yabai" 2>/dev/null || true
+	launchctl disable "$helper_domain/com.koekeishiya.skhd" 2>/dev/null || true
+	launchctl disable "$helper_domain/$helper_label" 2>/dev/null || true
+	launchctl bootout "$helper_domain/$helper_label" 2>/dev/null || true
+
+	# A new account may register the hidden notification source asynchronously.
+	# Retry once; failure remains non-fatal and is visible in dotfiles-doctor.
+	if [[ $notification_suppressed -eq 0 ]]; then
+		/bin/sleep 0.5
+		if DOTFILES_BACKUP_DIR="$backup_dir" \
+			"$HOME/.local/bin/macos-suppress-background-activity-notifications"
+		then
+			notification_suppressed=1
+		else
+			printf 'Warning: App Background Activity notifications remain enabled.\n' >&2
+		fi
+		if [[ -d "$backup_dir" ]]; then
+			backup_created=1
+		fi
+	fi
+
+	if command -v aerospace >/dev/null 2>&1; then
+		aerospace reload-config >/dev/null 2>&1 || true
+	fi
 fi
 
 if [[ $backup_created -eq 1 ]]; then

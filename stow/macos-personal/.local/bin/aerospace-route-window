@@ -1,0 +1,336 @@
+#!/usr/bin/env bash
+
+# Place a newly detected window once, without changing focus or its layout.
+# Explicit --force is reserved for the user's global reset command.
+
+set -u
+original_args=("$@")
+
+AEROSPACE_BIN="${AEROSPACE_BIN:-/opt/homebrew/bin/aerospace}"
+PS_BIN="${AEROSPACE_PS_BIN:-/bin/ps}"
+LSOF_BIN="${AEROSPACE_LSOF_BIN:-/usr/sbin/lsof}"
+LOG_DIR="${HOME}/.local/state"
+LOG_FILE="${LOG_DIR}/aerospace-align.log"
+ROUTE_STATE_DIR="${AEROSPACE_ROUTING_STATE_DIR:-${LOG_DIR}/aerospace-routing}"
+QUIET=0
+DRY_RUN=0
+FORCE=0
+REMEMBER=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --quiet)
+      QUIET=1
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --force)
+      FORCE=1
+      shift
+      ;;
+    --remember)
+      REMEMBER=1
+      shift
+      ;;
+    -h|--help)
+      printf 'Usage: %s [--quiet] [--dry-run] [--force|--remember] [--] [window-id [pid bundle-id title]]\n' "${0##*/}"
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+window_id="${1:-${AEROSPACE_WINDOW_ID:-}}"
+app_pid="${2:-}"
+bundle_id="${3:-}"
+window_title="${4:-}"
+
+log() {
+  [ "$QUIET" -eq 1 ] && return 0
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf '%s\n' "$*"
+    return
+  fi
+  /bin/mkdir -p "$LOG_DIR"
+  /usr/bin/printf '%s %s\n' "$(/bin/date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE"
+}
+
+fail() {
+  printf 'AeroSpace routing: %s\n' "$*" >&2
+  if [ "$DRY_RUN" -eq 0 ]; then
+    /bin/mkdir -p "$LOG_DIR"
+    printf '%s ERROR %s\n' "$(/bin/date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE"
+  fi
+  return 1
+}
+
+run_aerospace() {
+  local output status
+  if output="$("$AEROSPACE_BIN" "$@" 2>&1)"; then
+    return 0
+  else
+    status=$?
+    fail "window=$window_id command=$* failed ($status)${output:+: $output}"
+    return "$status"
+  fi
+}
+
+if [ ! -x "$AEROSPACE_BIN" ] || [ -z "$window_id" ]; then
+  fail "missing AeroSpace or window id"
+  exit 1
+fi
+if ! [[ "$window_id" =~ ^[0-9]+$ ]]; then
+  fail "invalid window id: $window_id"
+  exit 2
+fi
+
+# on-window-detected exports AEROSPACE_WINDOW_ID. Resolve PID, bundle, and
+# title from AeroSpace when the callback did not pass them explicitly. Wait
+# briefly for Telegram to publish a title. If it stays unknown, leave the
+# window alone and allow a later callback to retry classification.
+if [ -z "$app_pid" ] || [ -z "$bundle_id" ] \
+  || { [ "$bundle_id" = com.tdesktop.Telegram ] && [ -z "$window_title" ]; }
+then
+  metadata=""
+  attempt=0
+  while [ "$attempt" -lt 10 ]; do
+    metadata="$($AEROSPACE_BIN list-windows --all \
+      --format '%{window-id}%{tab}%{app-pid}%{tab}%{app-bundle-id}%{tab}%{window-title}' 2>/dev/null \
+      | /usr/bin/awk -F '\t' -v wanted="$window_id" '$1 == wanted { print; exit }')"
+
+    if [ -n "$metadata" ]; then
+      IFS=$'\t' read -r _resolved_window app_pid bundle_id window_title <<< "$metadata"
+      if [ -n "$app_pid" ] && [ -n "$bundle_id" ]; then
+        if [ "$bundle_id" != com.tdesktop.Telegram ] || [ -n "$window_title" ]; then
+          break
+        fi
+      fi
+    fi
+
+    /bin/sleep 0.1
+    attempt=$((attempt + 1))
+  done
+fi
+
+if [ -z "$app_pid" ] || [ -z "$bundle_id" ]; then
+  fail "metadata unavailable for window=$window_id"
+  exit 1
+fi
+if ! [[ "$app_pid" =~ ^[0-9]+$ ]]; then
+  fail "invalid app pid: $app_pid"
+  exit 2
+fi
+if [ "$REMEMBER" -eq 0 ] && [ "$bundle_id" = com.tdesktop.Telegram ] \
+  && [ -z "${window_title//[[:space:]]/}" ]; then
+  log "preserved Telegram window=$window_id: title is not ready"
+  exit 0
+fi
+
+target_workspace=""
+target_layout=""
+route_label="$bundle_id"
+
+# The application's start time survives AeroSpace reloads/restarts and avoids
+# confusing a reused PID with an earlier process. Per-window process locks also
+# stop the callback and startup coordinator from routing a window concurrently.
+process_started="$("$PS_BIN" -p "$app_pid" -o lstart= 2>/dev/null || true)"
+if [ -z "$process_started" ]; then
+  fail "process disappeared before routing window=$window_id pid=$app_pid"
+  exit 1
+fi
+process_key="${process_started//[^[:alnum:]]/-}"
+route_key="${app_pid}-${process_key}-${window_id}"
+route_done="${ROUTE_STATE_DIR}/${route_key}.done"
+route_lock="${ROUTE_STATE_DIR}/${route_key}.lock"
+if [ "$FORCE" -eq 0 ] && [ -e "$route_done" ]; then
+  log "preserved previously detected window=$window_id"
+  exit 0
+fi
+
+if [ "$REMEMBER" -eq 1 ]; then
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf 'would remember window=%s without changing it\n' "$window_id"
+    exit 0
+  fi
+  /bin/mkdir -p "$ROUTE_STATE_DIR" && : > "$route_done" || {
+    fail "cannot remember window=$window_id in $ROUTE_STATE_DIR"
+    exit 1
+  }
+  exit 0
+fi
+
+# lockf releases its kernel lock even if a router is killed. Re-enter under
+# that lock before profile inspection, then recheck the remembered marker.
+if [ "$DRY_RUN" -eq 0 ] && [ "${AEROSPACE_ROUTING_LOCK_HELD:-}" != "$route_key" ]; then
+  /bin/mkdir -p "$ROUTE_STATE_DIR" || { fail "cannot create $ROUTE_STATE_DIR"; exit 1; }
+  AEROSPACE_ROUTING_LOCK_HELD="$route_key" /usr/bin/lockf -k -t 0 "$route_lock" \
+    /bin/bash "$0" "${original_args[@]}"
+  lock_status=$?
+  if [ "$lock_status" -eq 75 ]; then
+    if [ "$FORCE" -eq 1 ]; then
+      fail "window=$window_id is currently being routed; retry global reset"
+      exit 1
+    fi
+    log "routing already in progress for window=$window_id"
+    exit 0
+  fi
+  exit "$lock_status"
+fi
+
+firefox_named_profile_basename() {
+  local wanted_name="$1"
+  local profiles_ini="${HOME}/Library/Application Support/Firefox/profiles.ini"
+  [ -r "$profiles_ini" ] || return 1
+
+  /usr/bin/awk -F= -v wanted_name="$wanted_name" '
+    function emit() {
+      if (name == wanted_name && profile_path != "") {
+        sub(/^.*\//, "", profile_path)
+        print profile_path
+        found = 1
+        exit
+      }
+    }
+    /^\[/ { if (!found) emit(); name = ""; profile_path = ""; next }
+    $1 == "Name" { name = substr($0, index($0, "=") + 1); next }
+    $1 == "Path" { profile_path = substr($0, index($0, "=") + 1); next }
+    END { if (!found) emit() }
+  ' "$profiles_ini"
+}
+
+firefox_profile_basename() {
+  local process_pid="$1"
+  local profile_path
+
+  profile_path="$("$LSOF_BIN" -a -p "$process_pid" -Fn 2>/dev/null \
+    | /usr/bin/sed -n 's/^n\(.*\)\/\.parentlock$/\1/p' \
+    | /usr/bin/head -n 1)"
+  [ -n "$profile_path" ] || return 1
+  /usr/bin/printf '%s\n' "${profile_path##*/}"
+}
+
+firefox_is_default_profile() {
+  local process_pid="$1"
+  local process_command="$2"
+  local active_profile default_profile
+
+  if [[ "$process_command" =~ (^|[[:space:]])-P[[:space:]]+default-release([[:space:]]|$) ]]; then
+    return 0
+  fi
+  if [[ "$process_command" =~ (^|[[:space:]])-P[[:space:]]+[^[:space:]]+ ]]; then
+    return 1
+  fi
+  active_profile="$(firefox_profile_basename "$process_pid" 2>/dev/null || true)"
+  default_profile="$(firefox_named_profile_basename default-release 2>/dev/null || true)"
+  if [ -n "$active_profile" ] && [ -n "$default_profile" ]; then
+    [ "$active_profile" = "$default_profile" ]
+    return
+  fi
+
+  # Preserve the historical safe fallback: an unknown profile is primary.
+  return 0
+}
+
+firefox_is_nsfw_profile() {
+  local process_pid="$1"
+  local process_command="$2"
+  local active_profile nsfw_profile
+
+  if [[ "$process_command" =~ (^|[[:space:]])-P[[:space:]]+NSFW([[:space:]]|$) ]]; then
+    return 0
+  fi
+  active_profile="$(firefox_profile_basename "$process_pid" 2>/dev/null || true)"
+  nsfw_profile="$(firefox_named_profile_basename NSFW 2>/dev/null || true)"
+  [ -n "$nsfw_profile" ] && [ "$active_profile" = "$nsfw_profile" ]
+}
+
+case "$bundle_id" in
+  org.mozilla.firefox)
+    process_command="$("$PS_BIN" -p "$app_pid" -o command= 2>/dev/null || true)"
+    # Check the dedicated profile first so its explicit -P argument wins even
+    # during the brief startup race before its profile lock is observable.
+    if firefox_is_nsfw_profile "$app_pid" "$process_command"; then
+      target_workspace="3"
+      route_label="Firefox NSFW"
+    elif firefox_is_default_profile "$app_pid" "$process_command"; then
+      target_workspace="1"
+      route_label="Firefox normal"
+    else
+      target_workspace="4"
+      route_label="Firefox secondary"
+    fi
+    ;;
+  org.mozilla.firefoxdeveloperedition)
+    target_workspace="4"
+    route_label="Firefox secondary"
+    ;;
+  net.kovidgoyal.kitty|com.mitchellh.ghostty|com.apple.Terminal)
+    target_workspace="2"
+    route_label="terminal"
+    ;;
+  com.hnc.Discord)
+    target_workspace="3"
+    route_label="Discord"
+    ;;
+  org.mozilla.macos.FirefoxVPN)
+    target_workspace="3"
+    target_layout="floating"
+    route_label="Mozilla VPN"
+    ;;
+  com.tdesktop.Telegram)
+    if [ -z "${window_title//[[:space:]]/}" ]; then
+      log "preserved Telegram window=$window_id: title is not ready"
+      exit 0
+    elif [[ "$window_title" == "Media viewer"* ]]; then
+      # This AXDialog belongs to the current Telegram/native Space. Moving it
+      # to workspace 5 turns it into a tiled pseudo-fullscreen window and can
+      # wedge the Space-animation helper. Leave it in place and float it over
+      # its parent instead.
+      target_layout="floating"
+      route_label="Telegram media viewer"
+    else
+      target_workspace="5"
+      route_label="Telegram"
+    fi
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  /usr/bin/printf 'window=%s pid=%s app=%s -> workspace=%s layout=%s\n' \
+    "$window_id" "$app_pid" "$route_label" "${target_workspace:-current}" "${target_layout:-preserve}"
+  exit 0
+fi
+
+if ! /bin/mkdir -p "$ROUTE_STATE_DIR"; then
+  fail "cannot create routing state directory $ROUTE_STATE_DIR"
+  exit 1
+fi
+if [ "$FORCE" -eq 0 ] && [ -e "$route_done" ]; then
+  exit 0
+fi
+
+if [ -n "$target_layout" ]; then
+  run_aerospace layout --window-id "$window_id" "$target_layout" || exit 1
+fi
+if [ -n "$target_workspace" ]; then
+  run_aerospace move-node-to-workspace --window-id "$window_id" -- "$target_workspace" || exit 1
+fi
+if ! : > "$route_done"; then
+  fail "window=$window_id placed, but unable to save routing state"
+  exit 1
+fi
+
+log "routed window=$window_id pid=$app_pid app=$route_label workspace=${target_workspace:-current} layout=${target_layout:-preserve}"
+exit 0

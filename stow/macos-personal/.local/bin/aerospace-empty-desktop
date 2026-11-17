@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+# Native fullscreen -> empty workspace via an ordinary AppKit window.
+# --prepare only builds the app; it never launches it or changes the desktop.
+set -euo pipefail
+umask 077
+
+script_path=$(/bin/realpath "${BASH_SOURCE[0]}")
+source_path="${script_path%/*}/.aerospace-empty-desktop.swift"
+cache_dir="$HOME/Library/Caches/aerospace-empty-desktop"
+app="$cache_dir/AeroSpace Empty Desktop.app"
+binary="$app/Contents/MacOS/aerospace-empty-desktop"
+
+case "${1:-}" in
+    --prepare) ;;
+    '') exit 0 ;;
+    1|2|3|4|5|6|7|8|9|10) ;;
+    *) printf 'Usage: %s [--prepare|1..10]\n' "${0##*/}" >&2; exit 2 ;;
+esac
+[[ $# -eq 1 || ( $# -eq 2 && "$1" == --prepare && "$2" == --locked ) ]] || exit 2
+
+if [[ ! -x "$binary" || "$source_path" -nt "$binary" ]]; then
+    /bin/mkdir -p "$cache_dir"
+    if [[ "${2:-}" != --locked ]]; then
+        # Concurrent focus callbacks must not replace the generated bundle
+        # underneath one another. Workspace state is checked after the build.
+        /usr/bin/lockf -ks -t 5 "$cache_dir/build.lock" \
+            /bin/bash "$script_path" --prepare --locked
+        [[ "$1" != --prepare ]] || exit 0
+        exec /bin/bash "$script_path" "$1"
+    fi
+    build_dir=$(/usr/bin/mktemp -d "$cache_dir/build.XXXXXX")
+    trap '/bin/rm -rf "$build_dir"' EXIT
+    /bin/mkdir -p "$build_dir/app/Contents/MacOS"
+    /usr/bin/swiftc -O "$source_path" -o "$build_dir/app/Contents/MacOS/aerospace-empty-desktop"
+    /bin/cat > "$build_dir/app/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>local.aerospace.empty-desktop</string>
+<key>CFBundleName</key><string>AeroSpace Empty Desktop</string>
+<key>CFBundleExecutable</key><string>aerospace-empty-desktop</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>LSUIElement</key><true/>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+<key>CFBundleURLTypes</key><array><dict>
+<key>CFBundleURLName</key><string>Empty workspace focus</string>
+<key>CFBundleURLSchemes</key><array><string>aerospace-empty-desktop</string></array>
+</dict></array>
+</dict></plist>
+PLIST
+    /usr/bin/codesign --force --sign - "$build_dir/app" >/dev/null 2>&1
+    # Only this helper's generated app bundle is replaced; no running apps stop.
+    /bin/rm -rf "$app"
+    /bin/mv "$build_dir/app" "$app"
+fi
+[[ "$1" != --prepare ]] || exit 0
+
+workspace=$1
+focused_empty=$(/opt/homebrew/bin/aerospace list-workspaces --monitor focused --visible --empty --format '%{workspace}')
+[[ "$focused_empty" == "$workspace" ]] || exit 0
+# Background launch prevents LaunchServices from activating a stale request.
+# The app rechecks the workspace before using its own window to switch focus.
+exec /usr/bin/open -g -a "$app" "aerospace-empty-desktop://workspace/$workspace"

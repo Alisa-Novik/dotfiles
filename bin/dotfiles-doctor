@@ -36,7 +36,7 @@ profile=$dotfiles_os-$dotfiles_role
 
 case "$profile" in
 	linux-personal) stow_packages=(common linux personal) ;;
-	macos-personal) stow_packages=(common macos personal) ;;
+	macos-personal) stow_packages=(common macos personal macos-personal) ;;
 	macos-work) stow_packages=(common macos work) ;;
 	*)
 		stow_packages=()
@@ -66,6 +66,21 @@ for command_name in zsh tmux nvim kitty rg fzf git; do
 		fail "$command_name is missing"
 	fi
 done
+
+if [[ "$profile" == macos-personal ]]; then
+	for command_name in aerospace python3; do
+		if command -v "$command_name" >/dev/null 2>&1; then
+			pass "$command_name available ($(command -v "$command_name"))"
+		else
+			fail "$command_name is missing"
+		fi
+	done
+	if [[ -x /Applications/kitty.app/Contents/MacOS/kitty ]]; then
+		pass "kitty available"
+	else
+		warn "kitty is missing; Option-Shift-Enter will not launch it"
+	fi
+fi
 
 if command -v fd >/dev/null 2>&1; then
 	pass "fd available ($(command -v fd))"
@@ -178,6 +193,141 @@ if bash -n "$HOME/.local/bin/tmux-sessionizer"; then
 	pass "tmux-sessionizer syntax"
 else
 	fail "tmux-sessionizer syntax"
+fi
+
+if [[ "$profile" == macos-personal ]]; then
+	desktop_syntax_ok=1
+	for desktop_script in \
+		"$HOME/.local/bin/aerospace-session-start" \
+		"$HOME/.local/bin/aerospace-route-window" \
+		"$HOME/.local/bin/aerospace-align-windows" \
+		"$HOME/.local/bin/aerospace-workspace" \
+		"$HOME/.local/bin/aerospace-safe-fullscreen" \
+		"$HOME/.local/bin/aerospace-clear-stale-snapshots" \
+		"$HOME/.local/bin/aerospace-empty-desktop" \
+		"$HOME/.config/yabai/aerospace-animation-helper.sh" \
+		"$HOME/.config/yabai/yabairc" \
+		"$HOME/.local/bin/macos-suppress-background-activity-notifications"
+	do
+		bash -n "$desktop_script" || desktop_syntax_ok=0
+	done
+	if [[ $desktop_syntax_ok -eq 1 ]]; then
+		pass "personal Mac desktop helper syntax"
+	else
+		fail "personal Mac desktop helper syntax"
+	fi
+
+	helper_plist="$HOME/Library/LaunchAgents/com.anovik-air.yabai-animation-helper.plist"
+	if [[ ! -e "$helper_plist" ]]; then
+		pass "optional yabai LaunchAgent is not installed"
+	elif ! plutil -lint "$helper_plist" >/dev/null; then
+		warn "optional yabai LaunchAgent has invalid syntax"
+	elif cmp -s \
+		"$repo_root/launchd/com.anovik-air.yabai-animation-helper.plist" \
+		"$helper_plist"
+	then
+		pass "optional yabai LaunchAgent copy matches its versioned template"
+	else
+		warn "optional yabai LaunchAgent copy differs from its versioned template"
+	fi
+
+	if [[ -f "$helper_plist" ]]; then
+		launch_program=$(plutil -extract ProgramArguments.0 raw "$helper_plist" 2>/dev/null || true)
+		launch_argument_1=$(plutil -extract ProgramArguments.1 raw "$helper_plist" 2>/dev/null || true)
+		if [[ "$launch_program" == /opt/homebrew/bin/yabai && -z "$launch_argument_1" ]]; then
+			pass "optional yabai LaunchAgent starts the binary directly"
+		else
+			warn "optional yabai LaunchAgent uses an unexpected executable or arguments"
+		fi
+	fi
+
+	if grep -Eq "^[[:space:]]*alt-f[[:space:]]*=[[:space:]]*['\"]fullscreen --no-outer-gaps['\"]([[:space:]]*(#.*)?)?$" \
+		"$HOME/.config/aerospace/aerospace.toml" \
+		&& grep -Eq "^[[:space:]]*cmd-ctrl-f[[:space:]]*=[[:space:]]*['\"]fullscreen --no-outer-gaps['\"]([[:space:]]*(#.*)?)?$" \
+			"$HOME/.config/aerospace/aerospace.toml"
+	then
+		pass "fullscreen shortcuts stay inside AeroSpace for every application"
+	else
+		fail "AeroSpace fullscreen shortcut policy"
+	fi
+
+	workspace_bindings_ok=1
+	for workspace_number in {1..10}; do
+		workspace_key=$((workspace_number % 10))
+		workspace_callback_suffix=""
+		[[ "$workspace_number" -eq 6 ]] && workspace_callback_suffix="; run-callback on-focus-changed"
+		grep -Eq "^[[:space:]]*alt-$workspace_key[[:space:]]*=[[:space:]]*['\"]workspace $workspace_number$workspace_callback_suffix['\"]([[:space:]]*(#.*)?)?$" \
+			"$HOME/.config/aerospace/aerospace.toml" || workspace_bindings_ok=0
+	done
+	if [[ $workspace_bindings_ok -eq 1 ]]; then
+		pass "all numbered workspace shortcuts call AeroSpace directly"
+	else
+		fail "AeroSpace workspace shortcuts still depend on external helpers"
+	fi
+
+	# Inspect the optional legacy service without restarting or configuring it.
+	# A live yabai process can have an unresponsive IPC socket, so every probe is
+	# bounded independently; a blocked client must not block the doctor.
+	desktop_probe() {
+		python3 - "$@" <<'PY'
+import subprocess
+import sys
+
+try:
+    result = subprocess.run(sys.argv[1:], timeout=1, check=False)
+except subprocess.TimeoutExpired:
+    sys.exit(124)
+except OSError:
+    sys.exit(127)
+sys.exit(result.returncode)
+PY
+	}
+
+	helper_label=com.anovik-air.yabai-animation-helper
+	helper_status=0
+	desktop_probe launchctl print "gui/$(id -u)/$helper_label" >/dev/null 2>&1 || helper_status=$?
+	if [[ $helper_status -eq 124 || $helper_status -eq 127 ]]; then
+		warn "optional yabai service status probe timed out or is unavailable"
+	elif [[ $helper_status -ne 0 ]]; then
+		pass "legacy yabai animation service is inactive; AeroSpace does not need it"
+	elif helper_layout=$(desktop_probe yabai -m config layout 2>/dev/null) \
+		&& helper_animation=$(desktop_probe yabai -m config skip_window_focus_animation 2>/dev/null); then
+		if [[ "$helper_layout" == float && "$helper_animation" == on ]]; then
+			warn "optional yabai animation service is active; the default AeroSpace setup leaves it disabled"
+		else
+			warn "active yabai has unexpected layout/animation policy ($helper_layout/$helper_animation)"
+		fi
+	else
+		warn "optional yabai service did not answer its bounded read-only probe; AeroSpace shortcuts do not depend on it"
+	fi
+
+	btm_preferences=""
+	for btm_candidate in \
+		"$HOME/Library/Group Containers/group.com.apple.usernoted/Library/Preferences/group.com.apple.usernoted.plist" \
+		"$HOME/Library/Preferences/com.apple.ncprefs.plist"
+	do
+		if [[ -f "$btm_candidate" ]]; then
+			btm_preferences=$btm_candidate
+			break
+		fi
+	done
+	btm_index=0
+	btm_flags=""
+	if [[ -n "$btm_preferences" ]]; then
+		while btm_bundle_id=$(plutil -extract "apps.$btm_index.bundle-id" raw "$btm_preferences" 2>/dev/null); do
+			if [[ "$btm_bundle_id" == com.apple.BTMNotificationAgent ]]; then
+				btm_flags=$(plutil -extract "apps.$btm_index.flags" raw "$btm_preferences" 2>/dev/null || true)
+				break
+			fi
+			btm_index=$((btm_index + 1))
+		done
+	fi
+	if [[ "$btm_flags" =~ ^[0-9]+$ ]] && ! ((btm_flags & (1 << 25))); then
+		pass "all App Background Activity notifications are disabled"
+	else
+		warn "App Background Activity notifications are not disabled"
+	fi
+
 fi
 if "$HOME/.local/bin/tmux-sessionizer" "/definitely/not/a/dotfiles/directory" >/dev/null 2>&1; then
 	fail "tmux-sessionizer accepted an invalid directory"

@@ -20,3 +20,7 @@ export PATH
 export EDITOR=nvim
 export VISUAL=nvim
 export RIPGREP_CONFIG_PATH="${XDG_CONFIG_HOME:-$HOME/.config}/ripgrep/config"
+
+# >>> Codex installer >>>
+export PATH="/Users/anovik-air/.local/bin:$PATH"
+# <<< Codex installer <<<

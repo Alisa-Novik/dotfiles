@@ -1,0 +1,14 @@
+customCommands:
+  - key: "C"
+    command: "claude_commit"
+    description: "commit with Claude Code"
+    context: "files"
+    loadingText: "committing with Claude Code"
+    output: terminal
+gui:
+  mouseEvents: false
+  scrollHeight: 30
+git:
+  autoFetch: false
+  diffRenderers:
+    - command: delta --dark --syntax-theme="Solarized (dark)" --paging=never

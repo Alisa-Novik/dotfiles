@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+
+# Compatibility CLI for AeroSpace fullscreen. Normal hotkeys use the built-in
+# command directly; leaving native fullscreen is an explicit repair action.
+set -euo pipefail
+
+AEROSPACE_BIN=${AEROSPACE_BIN:-/opt/homebrew/bin/aerospace}
+
+case "${1:-}" in
+  --exit-native)
+    shift
+    ;;
+  -h|--help)
+    printf 'Usage: %s [--exit-native]\n' "${0##*/}"
+    exit 0
+    ;;
+  '')
+    exec "$AEROSPACE_BIN" fullscreen --no-outer-gaps
+    ;;
+  *)
+    printf 'Unknown argument: %s\n' "$1" >&2
+    exit 2
+    ;;
+esac
+[[ $# -eq 0 ]] || { printf 'Unexpected arguments\n' >&2; exit 2; }
+
+# Pin the target before any asynchronous macOS transition. A later focus change
+# must never cause another application's window to be changed.
+window_id=$("$AEROSPACE_BIN" list-windows --focused --format '%{window-id}')
+[[ "$window_id" =~ ^[0-9]+$ ]] || { printf 'No focused window\n' >&2; exit 1; }
+
+# Native exit is one explicit action. Do not schedule a later zoom that could
+# override a newer fullscreen keypress or steal focus after a workspace change.
+exec "$AEROSPACE_BIN" macos-native-fullscreen off --window-id "$window_id"

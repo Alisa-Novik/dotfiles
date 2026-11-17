@@ -1,0 +1,9 @@
+#!/bin/sh
+
+# A quiet Kanagawa-blue focus ring for the AeroSpace desktop.
+exec /opt/homebrew/bin/borders \
+    active_color=0xff7e9cd8 \
+    inactive_color=0x553d414c \
+    width=4.0 \
+    style=round \
+    hidpi=on

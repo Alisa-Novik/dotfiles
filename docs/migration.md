@@ -25,10 +25,12 @@ configuration directory.
 ## Personal Mac
 
 The old active `~/dotfiles-macos` directory was not a Git repository. Do not
-delete it during the first migration. Apply `macos-personal`, run the doctor,
-then compare its backup with the new shared configuration. The canonical Nvim
-graph is the newer Linux graph; the useful Mac prose and Kitty behavior has
-already been merged.
+delete it during the first migration. The `macos-personal` Stow package now
+owns its surviving desktop configuration (AeroSpace, Ghostty, and
+desktop helpers), while the old directory remains a rollback snapshot. Apply
+`macos-personal`, run the doctor, and inspect the timestamped backup before
+retiring that snapshot. The canonical Nvim graph is the newer Linux graph;
+the useful Mac prose and Kitty behavior has already been merged.
 
 ## Work Mac
 

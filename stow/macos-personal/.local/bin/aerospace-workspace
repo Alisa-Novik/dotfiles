@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# Compatibility entry point for terminal callers. Hotkeys run the workspace
+# command inside AeroSpace directly, so successive keys stay in server order.
+# Fullscreen uses AeroSpace's own layout; workspace navigation must never wait
+# for an auxiliary daemon or retry an old request after a newer one succeeds.
+set -euo pipefail
+
+AEROSPACE_BIN=/opt/homebrew/bin/aerospace
+
+if [[ $# -ne 1 || -z "${1:-}" ]]; then
+	printf 'Usage: %s WORKSPACE\n' "${0##*/}" >&2
+	exit 2
+fi
+
+if [[ ! -x "$AEROSPACE_BIN" ]]; then
+	printf 'AeroSpace is not installed at %s\n' "$AEROSPACE_BIN" >&2
+	exit 1
+fi
+
+exec "$AEROSPACE_BIN" workspace -- "$1"
