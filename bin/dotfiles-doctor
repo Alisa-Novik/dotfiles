@@ -161,32 +161,13 @@ else
 	fail "isolated tmux config parse"
 fi
 
-init_lua=$HOME/.config/nvim/init.lua
-nvim_data_home=${XDG_DATA_HOME:-$HOME/.local/share}/nvim
-if [[ ${DOTFILES_DOCTOR_COMPILE_ONLY:-0} != 1 \
-	&& -d "$nvim_data_home/lazy/harpoon" \
-	&& -d "$nvim_data_home/lazy/lazy.nvim" ]]
+init_lua=$HOME/.config/nvim-devaslife/init.lua
+if DOTFILES_NVIM_INIT="$init_lua" nvim --headless -u NONE \
+	'+lua assert(loadfile(vim.env.DOTFILES_NVIM_INIT))' +qa >/dev/null 2>&1
 then
-	if nvim --headless \
-		'+lua assert(vim.fn.exists(":Explore") == 2, "netrw missing")' \
-		'+lua assert(pcall(require, "harpoon"), "harpoon missing")' \
-		+qa >/dev/null 2>&1
-	then
-		pass "Neovim headless startup with netrw and Harpoon"
-	else
-		fail "Neovim headless startup/netrw/Harpoon"
-	fi
+	pass "Neovim (nvim-devaslife) config compiles"
 else
-	if DOTFILES_NVIM_INIT="$init_lua" nvim --headless -u NONE \
-		'+lua assert(loadfile(vim.env.DOTFILES_NVIM_INIT))' +qa >/dev/null 2>&1 \
-		&& grep -Fq '"ThePrimeagen/harpoon"' "$init_lua" \
-		&& grep -Fq '<cmd>Explore<CR>' "$init_lua"
-	then
-		pass "Neovim config compiles and declares netrw plus Harpoon"
-		warn "Neovim plugins are not installed yet; open nvim once, then rerun doctor"
-	else
-		fail "Neovim config compilation/netrw/Harpoon declaration"
-	fi
+	fail "Neovim (nvim-devaslife) config compilation"
 fi
 
 if bash -n "$HOME/.local/bin/tmux-sessionizer"; then

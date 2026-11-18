@@ -43,3 +43,14 @@ vim.api.nvim_create_autocmd("FileType", {
 		enable(args.buf, hard[vim.bo[args.buf].filetype])
 	end,
 })
+
+-- Rendered Markdown in-buffer (raw text returns on the cursor line / in insert mode)
+vim.pack.add({
+	{ src = "https://github.com/MeanderingProgrammer/render-markdown.nvim" },
+})
+require("render-markdown").setup({
+	latex = { enabled = false },
+	heading = { sign = false },
+	code = { sign = false },
+})
+vim.keymap.set("n", "<leader>mr", "<cmd>RenderMarkdown toggle<CR>", { desc = "Toggle Markdown render" })

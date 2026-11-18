@@ -19,7 +19,7 @@ unset dotfiles_path_entry
 
 export PATH
 export EDITOR=nvim
-export NVIM_APPNAME=nvim-devaslife  # old config: NVIM_APPNAME=nvim nvim
+export NVIM_APPNAME=nvim-devaslife
 export VISUAL=nvim
 export RIPGREP_CONFIG_PATH="${XDG_CONFIG_HOME:-$HOME/.config}/ripgrep/config"
 
