@@ -87,6 +87,8 @@ local function reading_mode()
 	pcall(function()
 		local cfg = require("render-markdown.state").get(buf)
 		cfg.anti_conceal = vim.tbl_extend("force", cfg.anti_conceal, { enabled = false })
+		cfg.win_options = vim.tbl_deep_extend("force", cfg.win_options, { concealcursor = { rendered = "n" } })
+		vim.wo.concealcursor = "n"
 	end)
 	vim.keymap.set("n", "j", para(1), { buffer = buf, desc = "Next paragraph" })
 	vim.keymap.set("n", "k", para(-1), { buffer = buf, desc = "Previous paragraph" })
