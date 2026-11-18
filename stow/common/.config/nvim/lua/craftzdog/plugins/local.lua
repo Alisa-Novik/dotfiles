@@ -186,6 +186,20 @@ vim.api.nvim_create_autocmd("BufReadPost", {
 
 vim.keymap.set("n", "<C-i>", "<C-i>", { desc = "Jump forward" })
 
+-- Rooter
+vim.api.nvim_create_autocmd("BufEnter", {
+	group = vim.api.nvim_create_augroup("local-rooter", { clear = true }),
+	callback = function(args)
+		if vim.bo[args.buf].buftype ~= "" then
+			return
+		end
+		local root = vim.fs.root(args.buf, ".git")
+		if root and root ~= vim.uv.cwd() then
+			vim.fn.chdir(root)
+		end
+	end,
+})
+
 -- Harpoon
 vim.pack.add({
 	{ src = "https://github.com/nvim-lua/plenary.nvim" },

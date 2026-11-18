@@ -61,10 +61,10 @@ on-window-detected = [
 
 gaps.inner.horizontal = 8
 gaps.inner.vertical = 8
-gaps.outer.left = 12
-gaps.outer.bottom = 12
-gaps.outer.top = 12
-gaps.outer.right = 12
+gaps.outer.left = 0
+gaps.outer.bottom = 0
+gaps.outer.top = 0
+gaps.outer.right = 0
 
 [mode.main.binding]
     # Launch terminal apps.
