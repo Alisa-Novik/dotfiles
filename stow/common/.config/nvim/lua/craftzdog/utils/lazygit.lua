@@ -52,7 +52,6 @@ function M.edit_command(opts)
 		inside_neovim[#inside_neovim + 1] = nvim_server .. ' --remote-send ":{{line}}<CR>"'
 	end
 
-	-- POSIX sh syntax (works under zsh/bash; upstream used fish syntax)
 	return ('if [ -z "$NVIM" ]; then %s; else %s; fi'):format(
 		outside_neovim,
 		table.concat(inside_neovim, "; ")

@@ -44,7 +44,7 @@ vim.api.nvim_create_autocmd("FileType", {
 	end,
 })
 
--- Rendered Markdown in-buffer (raw text returns on the cursor line / in insert mode)
+-- Markdown rendering
 vim.pack.add({
 	{ src = "https://github.com/MeanderingProgrammer/render-markdown.nvim" },
 })
@@ -55,14 +55,10 @@ require("render-markdown").setup({
 })
 vim.keymap.set("n", "<leader>mr", "<cmd>RenderMarkdown toggle<CR>", { desc = "Toggle Markdown render" })
 
--- Reading mode for books: centered narrow column, no numbers/spell/signs.
--- Auto-enabled for ~/Documents/books/*; toggle anywhere with <leader>z.
+-- Reading mode
 vim.pack.add({ { src = "https://github.com/folke/twilight.nvim" } })
 require("twilight").setup({
 	dimming = { alpha = 0.3 },
-	-- line mode (treesitter would light only the exact paragraph and ignore context).
-	-- Paragraphs are single lines separated by blanks, so ±2 lines = the paragraph
-	-- above and below; the range then grows to the surrounding blank lines.
 	treesitter = false,
 	context = 4,
 })
@@ -74,13 +70,11 @@ local function reading_mode()
 		win = { width = 90, backdrop = { transparent = false } },
 		toggles = { dim = false, git_signs = false, diagnostics = false },
 	})
-	-- pencil/statuscolumn set these asynchronously, so apply after them
 	vim.defer_fn(function()
 		local wo = vim.wo[0][0]
 		wo.number, wo.relativenumber, wo.spell, wo.cursorline = false, false, false, false
 		wo.signcolumn, wo.foldcolumn, wo.statuscolumn = "no", "0", ""
 	end, 100)
-	-- j/k jump between paragraphs and keep the current one centered
 	local function para(dir)
 		return function()
 			for _ = 1, vim.v.count1 do
@@ -99,11 +93,15 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
 	pattern = vim.fn.expand("~") .. "/Documents/books/*.md",
 	callback = function(args)
 		vim.bo[args.buf].modifiable = false
-		vim.schedule(reading_mode)
+		vim.schedule(function()
+			if vim.api.nvim_win_get_config(0).relative == "" then
+				reading_mode()
+			end
+		end)
 	end,
 })
 
--- Reopen any file at the last cursor position
+-- Restore cursor position
 vim.api.nvim_create_autocmd("BufReadPost", {
 	group = vim.api.nvim_create_augroup("local-last-position", { clear = true }),
 	callback = function(args)
@@ -115,4 +113,28 @@ vim.api.nvim_create_autocmd("BufReadPost", {
 			pcall(vim.api.nvim_win_set_cursor, 0, mark)
 		end
 	end,
+})
+
+vim.keymap.set("n", "<C-i>", "<C-i>", { desc = "Jump forward" })
+
+-- Harpoon
+vim.pack.add({
+	{ src = "https://github.com/nvim-lua/plenary.nvim" },
+	{ src = "https://github.com/ThePrimeagen/harpoon", version = "harpoon2" },
+})
+local harpoon = require("harpoon")
+harpoon:setup()
+vim.keymap.set("n", "<leader>ha", function() harpoon:list():add() end, { desc = "Harpoon add file" })
+vim.keymap.set("n", "<leader>he", function() harpoon.ui:toggle_quick_menu(harpoon:list()) end, { desc = "Harpoon quick menu" })
+for i = 1, 5 do
+	vim.keymap.set("n", "<leader>h" .. i, function() harpoon:list():select(i) end, { desc = "Harpoon file " .. i })
+end
+
+-- which-key
+vim.pack.add({ { src = "https://github.com/folke/which-key.nvim" } })
+require("which-key").setup({ preset = "classic", delay = 300 })
+require("which-key").add({
+	{ "<leader>h", group = "Harpoon" },
+	{ "<leader>m", group = "Markdown" },
+	{ "<leader>d", group = "Diff" },
 })
