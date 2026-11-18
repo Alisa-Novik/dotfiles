@@ -161,13 +161,13 @@ else
 	fail "isolated tmux config parse"
 fi
 
-init_lua=$HOME/.config/nvim-devaslife/init.lua
+init_lua=$HOME/.config/nvim/init.lua
 if DOTFILES_NVIM_INIT="$init_lua" nvim --headless -u NONE \
 	'+lua assert(loadfile(vim.env.DOTFILES_NVIM_INIT))' +qa >/dev/null 2>&1
 then
-	pass "Neovim (nvim-devaslife) config compiles"
+	pass "Neovim config compiles"
 else
-	fail "Neovim (nvim-devaslife) config compilation"
+	fail "Neovim config compilation"
 fi
 
 if bash -n "$HOME/.local/bin/tmux-sessionizer"; then

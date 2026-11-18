@@ -19,7 +19,6 @@ unset dotfiles_path_entry
 
 export PATH
 export EDITOR=nvim
-export NVIM_APPNAME=nvim-devaslife
 export VISUAL=nvim
 export RIPGREP_CONFIG_PATH="${XDG_CONFIG_HOME:-$HOME/.config}/ripgrep/config"
 
@@ -105,7 +104,7 @@ fi
 
 alias cdd='cd -- "$DOTFILES_DIR"'
 alias kc='"$EDITOR" "$HOME/.config/kitty/kitty.conf"'
-alias nc='"$EDITOR" "$HOME/.config/nvim-devaslife/init.lua"'
+alias nc='"$EDITOR" "$HOME/.config/nvim/init.lua"'
 alias nv='nvim'
 alias nz='"$EDITOR" "$HOME/.zshrc"'
 alias ns='source "$HOME/.zshrc"'
