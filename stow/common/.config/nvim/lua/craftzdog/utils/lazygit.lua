@@ -31,7 +31,7 @@ local nvim_server = 'nvim --server "$NVIM"'
 local focus_launch_pane = nvim_server
 	.. [[ --remote-send '<Cmd>lua require("craftzdog.utils.lazygit").focus_origin()<CR>']]
 
---- Builds a lazygit `os.edit` / `os.editAtLine` command (fish syntax) that opens
+--- Builds a lazygit `os.edit` / `os.editAtLine` command (POSIX sh syntax) that opens
 --- the selected file in the pane lazygit was launched from rather than a new
 --- tab. lazygit fills in `{{filename}}` (shell-quoted) and `{{line}}`.
 --- @param opts? { at_line?: boolean } also jump to `{{line}}` after opening
@@ -52,7 +52,8 @@ function M.edit_command(opts)
 		inside_neovim[#inside_neovim + 1] = nvim_server .. ' --remote-send ":{{line}}<CR>"'
 	end
 
-	return ('begin; if test -z "$NVIM"; %s; else; %s; end; end'):format(
+	-- POSIX sh syntax (works under zsh/bash; upstream used fish syntax)
+	return ('if [ -z "$NVIM" ]; then %s; else %s; fi'):format(
 		outside_neovim,
 		table.concat(inside_neovim, "; ")
 	)
