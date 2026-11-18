@@ -61,6 +61,7 @@ require("twilight").setup({
 	dimming = { alpha = 0.3 },
 	treesitter = false,
 	context = 4,
+	exclude = { "image" },
 })
 
 local function reading_mode()
@@ -78,7 +79,7 @@ local function reading_mode()
 	local function para(dir)
 		return function()
 			for _ = 1, vim.v.count1 do
-				vim.fn.search([[\(^\s*\n\)\@<=\S]], dir == 1 and "W" or "bW")
+				vim.fn.search([[\%^\S\|\(^\s*\n\)\@<=\S]], dir == 1 and "W" or "bW")
 			end
 			vim.cmd("normal! zz")
 		end
@@ -90,6 +91,29 @@ local function reading_mode()
 		cfg.win_options = vim.tbl_deep_extend("force", cfg.win_options, { concealcursor = { rendered = "n" } })
 		vim.wo.concealcursor = "n"
 	end)
+	vim.keymap.set("n", "<CR>", function()
+		local src = vim.api.nvim_get_current_line():match("!%[.-%]%((.-)%)")
+		if not src then
+			return
+		end
+		local dir = vim.fs.dirname(vim.api.nvim_buf_get_name(buf))
+		local path = vim.fs.joinpath(dir, src)
+		local full = vim.fs.joinpath(dir, vim.fs.dirname(src), "full", vim.fs.basename(src))
+		if vim.uv.fs_stat(full) then
+			path = full
+		end
+		local win = Snacks.win({
+			width = 0.95,
+			height = 0.95,
+			border = "none",
+			enter = true,
+			wo = { winblend = 0, cursorline = false, number = false, relativenumber = false, signcolumn = "no", statuscolumn = "" },
+			keys = { q = "close", ["<Esc>"] = "close", ["<CR>"] = "close" },
+		})
+		local w, h = vim.api.nvim_win_get_width(win.win), vim.api.nvim_win_get_height(win.win)
+		local img = Snacks.image.placement.new(win.buf, path, { inline = false, max_width = w, max_height = h })
+		win:on("WinClosed", function() img:close() end, { win = true })
+	end, { buffer = buf, desc = "Open image" })
 	vim.keymap.set("n", "j", para(1), { buffer = buf, desc = "Next paragraph" })
 	vim.keymap.set("n", "k", para(-1), { buffer = buf, desc = "Previous paragraph" })
 end
