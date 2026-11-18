@@ -1,7 +1,6 @@
 # Machine-local/private overlays
 **/.config/dotfiles/local.zsh
 **/.config/dotfiles/tmux/local.conf
-**/.config/dotfiles/nvim/local.lua
 **/.config/git/local.inc
 **/.config/kitty/local.conf
 

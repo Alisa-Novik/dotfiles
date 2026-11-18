@@ -359,7 +359,6 @@ permission_failures=0
 for local_file in \
 	"$HOME/.config/dotfiles/local.zsh" \
 	"$HOME/.config/dotfiles/tmux/local.conf" \
-	"$HOME/.config/dotfiles/nvim/local.lua" \
 	"$HOME/.config/git/local.inc" \
 	"$HOME/.config/kitty/local.conf"
 do
