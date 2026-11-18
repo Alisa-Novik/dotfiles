@@ -23,7 +23,7 @@ local function enable(buf, opts)
 			if opts and opts.textwidth then
 				vim.opt_local.textwidth = opts.textwidth
 			end
-			vim.opt_local.spell = true
+			vim.opt_local.spell = vim.bo[buf].buftype == "" and not vim.startswith(vim.api.nvim_buf_get_name(buf), vim.fn.expand("~/Documents/books/"))
 		end)
 	end)
 end
@@ -60,7 +60,7 @@ vim.pack.add({ { src = "https://github.com/folke/twilight.nvim" } })
 require("twilight").setup({
 	dimming = { alpha = 0.3 },
 	treesitter = false,
-	context = 4,
+	context = 0,
 	exclude = { "image" },
 })
 
@@ -71,11 +71,16 @@ local function reading_mode()
 		win = { width = 90, backdrop = { transparent = false } },
 		toggles = { dim = false, git_signs = false, diagnostics = false },
 	})
-	vim.defer_fn(function()
+	local function quiet()
 		local wo = vim.wo[0][0]
 		wo.number, wo.relativenumber, wo.spell, wo.cursorline = false, false, false, false
 		wo.signcolumn, wo.foldcolumn, wo.statuscolumn = "no", "0", ""
-	end, 100)
+	end
+	vim.defer_fn(quiet, 100)
+	vim.api.nvim_create_autocmd("WinEnter", {
+		buffer = vim.api.nvim_get_current_buf(),
+		callback = function() vim.schedule(quiet) end,
+	})
 	local function para(dir)
 		return function()
 			for _ = 1, vim.v.count1 do
@@ -114,6 +119,40 @@ local function reading_mode()
 		local img = Snacks.image.placement.new(win.buf, path, { inline = false, max_width = w, max_height = h })
 		win:on("WinClosed", function() img:close() end, { win = true })
 	end, { buffer = buf, desc = "Open image" })
+	vim.keymap.set("n", "K", function()
+		local line, col = vim.api.nvim_get_current_line(), vim.fn.col(".")
+		local all, hit = {}, nil
+		for s, n, e in line:gmatch("()%[(%d+)%]()") do
+			table.insert(all, n)
+			if col >= s and col < e then
+				hit = n
+			end
+		end
+		local nums = hit and { hit } or all
+		if #nums == 0 then
+			return
+		end
+		local refs = {}
+		for _, l in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
+			local n = l:match("^%[(%d+)%] ")
+			if n then
+				refs[n] = l
+			end
+		end
+		local out = {}
+		for _, n in ipairs(nums) do
+			table.insert(out, refs[n] or ("[" .. n .. "] not found"))
+			table.insert(out, "")
+		end
+		table.remove(out)
+		local _, ref_win = vim.lsp.util.open_floating_preview(out, "markdown", { border = "rounded", max_width = 80, focus_id = "book-ref" })
+		vim.keymap.set("n", "<Esc>", function()
+			if vim.api.nvim_win_is_valid(ref_win) then
+				vim.api.nvim_win_close(ref_win, true)
+			end
+			pcall(vim.keymap.del, "n", "<Esc>", { buffer = buf })
+		end, { buffer = buf })
+	end, { buffer = buf, desc = "Show reference" })
 	vim.keymap.set("n", "j", para(1), { buffer = buf, desc = "Next paragraph" })
 	vim.keymap.set("n", "k", para(-1), { buffer = buf, desc = "Previous paragraph" })
 end
