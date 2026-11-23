@@ -184,6 +184,7 @@ vim.api.nvim_create_autocmd("BufReadPost", {
 	end,
 })
 
+vim.keymap.set("n", "<C-o>", "<C-o>", { desc = "Jump back" })
 vim.keymap.set("n", "<C-i>", "<C-i>", { desc = "Jump forward" })
 
 -- Rooter
