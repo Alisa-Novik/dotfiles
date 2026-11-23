@@ -35,3 +35,6 @@ vim.filetype.add({
 		mjml = "html",
 	},
 })
+
+vim.o.autowriteall = true
+vim.api.nvim_create_autocmd({ "FocusLost", "BufLeave" }, { command = "silent! wall" })
